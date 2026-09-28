@@ -6,7 +6,6 @@ from email.mime.multipart import MIMEMultipart
 import time
 
 # --- 1. PROFESSIONAL UI SETTINGS ---
-# This hides the default Streamlit menu and footer
 st.set_page_config(page_title="Professional Bulk Mailer", layout="wide")
 hide_st_style = """
             <style>
@@ -25,7 +24,6 @@ if st.text_input("Enter Access Password:", type="password") != APP_PASSWORD:
     st.stop()
 
 # --- 3. SESSION STATE (MEMORY) ---
-# This ensures the app remembers your email credentials when you switch pages
 if 'sender_email' not in st.session_state:
     st.session_state.sender_email = ""
 if 'email_app_password' not in st.session_state:
@@ -56,7 +54,6 @@ if page == "⚙️ Account Settings":
 elif page == "📧 Send Emails":
     st.title("Send Bulk Emails")
     
-    # Check if user logged in on the other page
     if not st.session_state.sender_email or not st.session_state.email_app_password:
         st.warning("⚠️ Please go to **⚙️ Account Settings** first and save your email credentials.")
         st.stop()
@@ -76,7 +73,6 @@ elif page == "📧 Send Emails":
     if recipient_method == "Manual Entry (For Testing)":
         manual_emails = st.text_area("Enter email addresses (separated by commas)")
         if manual_emails:
-            # Clean up the text and split by comma
             emails = [e.strip() for e in manual_emails.split(",") if e.strip()]
             
     # FILE UPLOAD OPTION
@@ -84,12 +80,20 @@ elif page == "📧 Send Emails":
         uploaded_file = st.file_uploader("Upload File (.xlsx or .csv)", type=["csv", "xlsx"])
         if uploaded_file:
             try:
+                # FIX: Added header=None so it doesn't skip the first row
                 if uploaded_file.name.endswith('.csv'):
-                    df = pd.read_csv(uploaded_file)
+                    df = pd.read_csv(uploaded_file, header=None)
                 else:
-                    df = pd.read_excel(uploaded_file)
-                emails = df.iloc[:, 0].dropna().tolist()
+                    df = pd.read_excel(uploaded_file, header=None)
+                
+                emails = df.iloc[:, 0].dropna().astype(str).tolist()
                 st.success(f"Found {len(emails)} email(s) in the file.")
+                
+                # NEW FEATURE: Preview the extracted emails
+                with st.expander("👀 Click here to view the extracted emails"):
+                    for index, email in enumerate(emails):
+                        st.write(f"{index + 1}. {email}")
+                        
             except Exception as e:
                 st.error(f"Error reading file: {e}")
 
