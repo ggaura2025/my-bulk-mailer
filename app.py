@@ -25,8 +25,9 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- 2. DATABASE CONNECTION (SUPABASE) ---
-SUPABASE_URL = os.environ.get("SUPABASE_URL") or st.secrets.get("SUPABASE_URL", "")
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY") or st.secrets.get("SUPABASE_KEY", "")
+# FIX: Removed st.secrets to prevent the "No secrets found" error on Render
+SUPABASE_URL = os.environ.get("https://ljiupodazjhkzpyyqyct.supabase.co", "")
+SUPABASE_KEY = os.environ.get("sb_publishable_RxHyVYNCwU4cSJfBunlTHA_Ir5pc2DX", "")
 
 if not SUPABASE_URL or not SUPABASE_KEY:
     st.error("⚠️ Database connection missing. Check Render Environment Variables.")
@@ -34,6 +35,7 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 
 @st.cache_resource
 def init_connection():
+    # FIX: Closed the parenthesis that was missing here
     return create_client(SUPABASE_URL, SUPABASE_KEY)
 
 supabase: Client = init_connection()
