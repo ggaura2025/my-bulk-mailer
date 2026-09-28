@@ -21,7 +21,6 @@ st.set_page_config(
 
 st.markdown("""
     <style>
-    /* Remove default Streamlit overhead padding & header */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
@@ -29,13 +28,9 @@ st.markdown("""
         padding-top: 2rem !important;
         padding-bottom: 2rem !important;
     }
-    
-    /* Global App Background */
     .stApp {
         background-color: #F8FAFC;
     }
-    
-    /* Clean Modern Sidebar */
     [data-testid="stSidebar"] {
         background-color: #0F172A !important;
         border-right: 1px solid #1E293B;
@@ -43,8 +38,6 @@ st.markdown("""
     [data-testid="stSidebar"] * {
         color: #E2E8F0 !important;
     }
-    
-    /* Turn Sidebar Radio into Sleek Interactive Tabs */
     div[role="radiogroup"] > label {
         padding: 10px 14px !important;
         border-radius: 8px !important;
@@ -53,14 +46,12 @@ st.markdown("""
         border: 1px solid transparent !important;
         transition: all 0.2s ease-in-out !important;
     }
-    /* Hide the ugly radio dot circle */
     div[role="radiogroup"] > label > div:first-child {
         display: none !important;
     }
     div[role="radiogroup"] > label:hover {
         background-color: #1E293B !important;
     }
-    /* Active State for Selected Tab */
     div[role="radiogroup"] > label:has(input:checked) {
         background-color: #4F46E5 !important;
         border-color: #6366F1 !important;
@@ -70,8 +61,6 @@ st.markdown("""
         font-weight: 600 !important;
         color: #FFFFFF !important;
     }
-
-    /* Universal Card Architecture */
     .nexus-card {
         background-color: #FFFFFF;
         padding: 22px;
@@ -80,8 +69,6 @@ st.markdown("""
         box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02);
         margin-bottom: 16px;
     }
-    
-    /* Button Aesthetics */
     .stButton>button {
         border-radius: 8px;
         font-weight: 600;
@@ -112,8 +99,10 @@ def init_connection():
 supabase: Client = init_connection()
 
 # ==========================================
-# 3. SESSION STATE INITIALIZATION
+# 3. SESSION STATE & ADMIN INITIALIZATION
 # ==========================================
+ADMIN_EMAIL = "ggaura135@gmail.com"
+
 if 'user' not in st.session_state:
     st.session_state.user = None
 if 'nav_page' not in st.session_state:
@@ -126,9 +115,8 @@ if 'total_sent' not in st.session_state:
     st.session_state.total_sent = 0
 if 'saved_audience' not in st.session_state:
     st.session_state.saved_audience = []
-if 'is_pro' not in st.session_state:
-    # Set to True so you and your customer can send immediately without lockouts
-    st.session_state.is_pro = True 
+if 'tier' not in st.session_state:
+    st.session_state.tier = "Free"
 
 def navigate_to(page_name: str):
     st.session_state.nav_page = page_name
@@ -136,6 +124,17 @@ def navigate_to(page_name: str):
 
 def is_valid_email(email: str) -> bool:
     return bool(re.match(r"[^@]+@[^@]+\.[^@]+", email))
+
+def fetch_user_tier(email: str) -> str:
+    try:
+        res = supabase.table("subscriptions").select("tier").eq("email", email).execute()
+        if res.data:
+            return res.data[0]["tier"]
+        else:
+            supabase.table("subscriptions").insert({"email": email, "tier": "Free"}).execute()
+            return "Free"
+    except Exception as e:
+        return "Free"
 
 # ==========================================
 # 4. AUTHENTICATION PORTAL
@@ -156,6 +155,7 @@ if not st.session_state.user:
                 try:
                     res = supabase.auth.sign_in_with_password({"email": login_email, "password": login_pass})
                     st.session_state.user = res.user
+                    st.session_state.tier = fetch_user_tier(res.user.email)
                     st.rerun()
                 except Exception as e:
                     st.error("Invalid email or password.")
@@ -179,7 +179,6 @@ def render_dashboard():
     st.markdown("<h2 style='color: #0F172A; margin-bottom: 2px;'>Welcome back! 👋</h2>", unsafe_allow_html=True)
     st.markdown("<p style='color: #64748B; margin-bottom: 24px;'>Here is an overview of your outreach engines and recent performance.</p>", unsafe_allow_html=True)
     
-    # KPI Metrics Header Row
     kpi1, kpi2, kpi3, kpi4 = st.columns(4)
     with kpi1:
         st.markdown(f"""
@@ -213,86 +212,44 @@ def render_dashboard():
         """, unsafe_allow_html=True)
         
     with kpi4:
+        tier_colors = {"Free": "#64748B", "Plus": "#06B6D4", "Pro": "#4F46E5"}
+        t_color = tier_colors.get(st.session_state.tier, "#0F172A")
         st.markdown(f"""
         <div class="nexus-card">
             <span style='color:#64748B; font-size:13px; font-weight:600;'>Account Status</span>
-            <h2 style='margin:8px 0; color:#0F172A; font-size:32px;'>{'Pro Tier' if st.session_state.is_pro else 'Free Tier'}</h2>
+            <h2 style='margin:8px 0; color:{t_color}; font-size:32px;'>{st.session_state.tier} Tier</h2>
         </div>
         """, unsafe_allow_html=True)
         if st.button("Manage Subscription →", key="btn_kpi_upgrade", use_container_width=True):
-            navigate_to("💎 Upgrade to Pro")
+            navigate_to("💎 Upgrade Plan")
 
-    # Analytics & Activity Row
     col_chart, col_recent = st.columns([1.8, 1.2])
     with col_chart:
         st.markdown('<div class="nexus-card">', unsafe_allow_html=True)
-        st.markdown("<h4 style='color:#0F172A; margin:0;'>Delivery & Engagement Volume</h4>", unsafe_allow_html=True)
-        st.caption("Aggregated campaign delivery statistics.")
-        chart_data = pd.DataFrame(
-            np.random.randint(250, 1400, size=(8, 3)),
-            columns=['Sent', 'Delivered', 'Opened']
-        )
+        st.markdown("<h4 style='color:#0F172A; margin:0;'>Delivery Volume</h4>", unsafe_allow_html=True)
+        chart_data = pd.DataFrame(np.random.randint(250, 1400, size=(8, 3)), columns=['Sent', 'Delivered', 'Opened'])
         st.area_chart(chart_data, height=260, color=["#4F46E5", "#06B6D4", "#10B981"])
         st.markdown('</div>', unsafe_allow_html=True)
 
     with col_recent:
         st.markdown('<div class="nexus-card">', unsafe_allow_html=True)
-        st.markdown("<h4 style='color:#0F172A; margin-bottom:12px;'>Recent Activity</h4>", unsafe_allow_html=True)
-        st.markdown("""
-        <div style='display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid #F1F5F9;'>
-            <div><strong>Product Newsletter</strong><br><span style='font-size:12px; color:#64748B;'>2,420 contacts • High open rate</span></div>
-            <span style='color:#10B981; font-size:12px; font-weight:600; background:#ECFDF5; padding:2px 8px; border-radius:12px;'>Delivered</span>
-        </div>
-        <div style='display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid #F1F5F9;'>
-            <div><strong>Executive Invite</strong><br><span style='font-size:12px; color:#64748B;'>850 contacts • Gmail SMTP</span></div>
-            <span style='color:#10B981; font-size:12px; font-weight:600; background:#ECFDF5; padding:2px 8px; border-radius:12px;'>Delivered</span>
-        </div>
-        <div style='display:flex; justify-content:space-between; align-items:center; padding:8px 0;'>
-            <div><strong>Weekly Dispatch</strong><br><span style='font-size:12px; color:#64748B;'>System test broadcast</span></div>
-            <span style='color:#4F46E5; font-size:12px; font-weight:600; background:#EEF2FF; padding:2px 8px; border-radius:12px;'>Ready</span>
-        </div>
-        """, unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    # Operational Controls Row
-    c_actions, c_usage, c_help = st.columns(3)
-    with c_actions:
-        st.markdown('<div class="nexus-card">', unsafe_allow_html=True)
         st.markdown("<h4 style='color:#0F172A; margin-bottom:12px;'>Quick Actions</h4>", unsafe_allow_html=True)
-        if st.button("🚀 Launch Campaign", key="qa_launch_btn", type="primary", use_container_width=True):
+        if st.button("🚀 Launch Campaign", type="primary", use_container_width=True):
             navigate_to("🚀 Campaigns")
-        if st.button("⚙️ Setup SMTP Server", key="qa_smtp_btn", use_container_width=True):
+        if st.button("⚙️ Setup SMTP Server", use_container_width=True):
             navigate_to("⚙️ SMTP Settings")
-        if st.button("👥 Manage Contact Lists", key="qa_contacts_btn", use_container_width=True):
+        if st.button("👥 Manage Contact Lists", use_container_width=True):
             navigate_to("👥 Contact Lists")
-        st.markdown('</div>', unsafe_allow_html=True)
-        
-    with c_usage:
-        st.markdown('<div class="nexus-card">', unsafe_allow_html=True)
-        st.markdown("<h4 style='color:#0F172A; margin-bottom:12px;'>Quota Utilization</h4>", unsafe_allow_html=True)
-        st.caption("Daily Relay Capacity")
-        st.progress(min(st.session_state.total_sent / 500.0, 1.0) if st.session_state.total_sent else 0.04)
-        st.caption("SMTP Health")
-        st.progress(1.0 if is_smtp_active else 0.0)
-        st.markdown('</div>', unsafe_allow_html=True)
-        
-    with c_help:
-        st.markdown('<div class="nexus-card">', unsafe_allow_html=True)
-        st.markdown("<h4 style='color:#0F172A; margin-bottom:12px;'>Need Assistance?</h4>", unsafe_allow_html=True)
-        st.markdown("""
-        <div style='font-size:13px; line-height:1.7; color:#334155;'>
-            <strong>📖 SMTP Setup Guide:</strong> Configure a Google 16-character App Password under Account Security.<br>
-            <strong>📄 Recipient Lists:</strong> Upload <code>.csv</code> or <code>.xlsx</code> with emails in column 1.<br>
-            <strong>🎧 Priority Support:</strong> Available 24/7 for commercial tenants.
-        </div>
-        """, unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
 def render_campaign_launcher():
     st.markdown("<h2 style='color:#0F172A;'>Email Campaign Engine</h2>", unsafe_allow_html=True)
-    st.markdown("<p style='color:#64748B;'>Configure your messaging payload and launch bulk email operations.</p>", unsafe_allow_html=True)
     
-    # SMTP Pre-flight Verification
+    if st.session_state.tier == "Free":
+        st.error("🔒 **Upgrade Required:** Mass email launching is restricted on the Free Tier.")
+        st.info("Please go to **💎 Upgrade Plan** in the sidebar to activate your Plus or Pro subscription.")
+        st.stop()
+        
     if not st.session_state.sender_email or not st.session_state.email_app_password:
         st.warning("⚠️ **SMTP Connection Missing:** Configure your sending credentials before dispatching emails.")
         if st.button("Configure SMTP Credentials Now →"):
@@ -311,21 +268,15 @@ def render_campaign_launcher():
     with col_target:
         st.markdown('<div class="nexus-card">', unsafe_allow_html=True)
         st.subheader("2. Target Audience")
-        
-        # Audience Source Tabs
         src_tab1, src_tab2 = st.tabs(["📁 File Import", "✏️ Direct Entry"])
         active_recipients = []
         
         with src_tab1:
-            uploaded_file = st.file_uploader("Upload CSV or Excel", type=["csv", "xlsx"], key="campaign_file_up")
+            uploaded_file = st.file_uploader("Upload CSV or Excel", type=["csv", "xlsx"])
             if uploaded_file:
                 try:
-                    if uploaded_file.name.endswith('.csv'):
-                        df = pd.read_csv(uploaded_file, header=None)
-                    else:
-                        df = pd.read_excel(uploaded_file, header=None)
-                    raw_items = df.iloc[:, 0].dropna().astype(str).tolist()
-                    active_recipients = [e.strip() for e in raw_items if is_valid_email(e.strip())]
+                    df = pd.read_csv(uploaded_file, header=None) if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file, header=None)
+                    active_recipients = [e.strip() for e in df.iloc[:, 0].dropna().astype(str) if is_valid_email(e.strip())]
                     st.success(f"✅ {len(active_recipients)} valid recipients found.")
                 except Exception as e:
                     st.error(f"Error parsing file: {e}")
@@ -334,10 +285,9 @@ def render_campaign_launcher():
                 st.info(f"Loaded {len(active_recipients)} contacts from Contact Lists.")
                 
         with src_tab2:
-            manual_input = st.text_area("Comma or Newline separated emails", height=140, key="campaign_manual_input")
+            manual_input = st.text_area("Comma or Newline separated emails", height=140)
             if manual_input:
-                split_items = re.split(r'[,\n]+', manual_input)
-                manual_parsed = [e.strip() for e in split_items if is_valid_email(e.strip())]
+                manual_parsed = [e.strip() for e in re.split(r'[,\n]+', manual_input) if is_valid_email(e.strip())]
                 if manual_parsed:
                     active_recipients = manual_parsed
                     st.success(f"✅ {len(active_recipients)} valid recipients entered.")
@@ -348,7 +298,7 @@ def render_campaign_launcher():
         st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown('<div class="nexus-card">', unsafe_allow_html=True)
-    c_btn1, c_btn2, c_btn3 = st.columns([1, 1.5, 1])
+    _, c_btn2, _ = st.columns([1, 1.5, 1])
     with c_btn2:
         if st.button("🚀 Execute Mass Email Dispatch", type="primary", use_container_width=True):
             if not subject.strip() or not body.strip():
@@ -358,23 +308,17 @@ def render_campaign_launcher():
             else:
                 with st.status("Establishing Secure SMTP Relay...", expanded=True) as status_box:
                     try:
-                        st.write("Connecting to `smtp.gmail.com:587`...")
                         server = smtplib.SMTP("smtp.gmail.com", 587, timeout=20)
                         server.starttls()
                         server.login(st.session_state.sender_email, st.session_state.email_app_password)
-                        st.write("Authentication verified. Commencing transmissions...")
                         
                         p_bar = st.progress(0)
                         dispatched = 0
-                        
                         for idx, to_address in enumerate(active_recipients):
                             try:
                                 msg = MIMEMultipart()
-                                msg['From'] = st.session_state.sender_email
-                                msg['To'] = to_address
-                                msg['Subject'] = subject
+                                msg['From'], msg['To'], msg['Subject'] = st.session_state.sender_email, to_address, subject
                                 msg.attach(MIMEText(body, 'plain'))
-                                
                                 server.send_message(msg)
                                 dispatched += 1
                                 st.session_state.total_sent += 1
@@ -382,7 +326,7 @@ def render_campaign_launcher():
                                 st.write(f"⚠️ Delivery failure for `{to_address}`: {send_err}")
                                 
                             p_bar.progress((idx + 1) / len(active_recipients))
-                            time.sleep(0.5)  # Safe transmission delay
+                            time.sleep(0.5) 
                             
                         server.quit()
                         status_box.update(label=f"Campaign Dispatched! Successfully delivered {dispatched} emails.", state="complete", expanded=False)
@@ -394,31 +338,25 @@ def render_campaign_launcher():
 
 def render_contact_lists():
     st.markdown("<h2 style='color:#0F172A;'>Audience & Contact Lists</h2>", unsafe_allow_html=True)
-    st.markdown("<p style='color:#64748B;'>Store and manage customer segments to reuse across campaigns.</p>", unsafe_allow_html=True)
-    
     col_left, col_right = st.columns([1.2, 1.8])
     with col_left:
         st.markdown('<div class="nexus-card">', unsafe_allow_html=True)
         st.subheader("Upload or Paste Contacts")
-        up_file = st.file_uploader("Upload CSV / Excel File", type=["csv", "xlsx"], key="contact_page_uploader")
-        pasted = st.text_area("Or Paste Raw Addresses", height=160, placeholder="customer1@example.com, customer2@example.com")
+        up_file = st.file_uploader("Upload CSV / Excel File", type=["csv", "xlsx"])
+        pasted = st.text_area("Or Paste Raw Addresses", height=160)
         
         if st.button("Save to Working Audience", type="primary", use_container_width=True):
             collected = []
             if up_file:
-                try:
-                    df = pd.read_csv(up_file, header=None) if up_file.name.endswith('.csv') else pd.read_excel(up_file, header=None)
-                    collected.extend([str(x).strip() for x in df.iloc[:, 0].dropna() if is_valid_email(str(x).strip())])
-                except Exception as err:
-                    st.error(f"File reading error: {err}")
+                df = pd.read_csv(up_file, header=None) if up_file.name.endswith('.csv') else pd.read_excel(up_file, header=None)
+                collected.extend([str(x).strip() for x in df.iloc[:, 0].dropna() if is_valid_email(str(x).strip())])
             if pasted:
-                raw_split = re.split(r'[,\n]+', pasted)
-                collected.extend([x.strip() for x in raw_split if is_valid_email(x.strip())])
+                collected.extend([x.strip() for x in re.split(r'[,\n]+', pasted) if is_valid_email(x.strip())])
             
             deduped = list(dict.fromkeys(collected))
             if deduped:
                 st.session_state.saved_audience = deduped
-                st.success(f"✅ Successfully saved {len(deduped)} verified contacts!")
+                st.success(f"✅ Saved {len(deduped)} verified contacts!")
             else:
                 st.warning("No valid email addresses found.")
         st.markdown('</div>', unsafe_allow_html=True)
@@ -428,36 +366,27 @@ def render_contact_lists():
         st.subheader("Active Contact Segment")
         if st.session_state.saved_audience:
             st.dataframe(pd.DataFrame(st.session_state.saved_audience, columns=["Email Address"]), use_container_width=True, height=280)
-            c1, c2 = st.columns(2)
-            with c1:
-                if st.button("Clear Saved List", use_container_width=True):
-                    st.session_state.saved_audience = []
-                    st.rerun()
-            with c2:
-                if st.button("Open in Campaign Builder →", type="primary", use_container_width=True):
-                    navigate_to("🚀 Campaigns")
+            if st.button("Clear Saved List", use_container_width=True):
+                st.session_state.saved_audience = []
+                st.rerun()
         else:
-            st.info("No contacts stored in the current session. Upload a spreadsheet on the left to begin.")
+            st.info("No contacts stored. Upload to begin.")
         st.markdown('</div>', unsafe_allow_html=True)
 
 def render_smtp_settings():
     st.markdown("<h2 style='color:#0F172A;'>SMTP Configurations</h2>", unsafe_allow_html=True)
-    st.markdown("<p style='color:#64748B;'>Connect your sending relay to authenticate outbound customer communication.</p>", unsafe_allow_html=True)
-    
     col_form, col_instructions = st.columns([1.3, 1.2])
     with col_form:
         st.markdown('<div class="nexus-card">', unsafe_allow_html=True)
         st.subheader("Sender Credentials")
         with st.form("smtp_config_form"):
-            in_email = st.text_input("Sender Email Address", value=st.session_state.sender_email, placeholder="marketing@yourdomain.com")
-            in_password = st.text_input("Google 16-character App Password", value=st.session_state.email_app_password, type="password", help="Generated in your Google Account security settings.")
-            
+            in_email = st.text_input("Sender Email Address", value=st.session_state.sender_email)
+            in_password = st.text_input("Google 16-character App Password", value=st.session_state.email_app_password, type="password")
             if st.form_submit_button("Verify & Save Configuration", type="primary", use_container_width=True):
                 if in_email and in_password:
                     st.session_state.sender_email = in_email.strip()
                     st.session_state.email_app_password = in_password.strip().replace(" ", "")
-                    st.toast("SMTP credentials saved successfully!", icon="✅")
-                    st.success("Credentials stored in session memory.")
+                    st.success("Credentials stored successfully.")
                 else:
                     st.error("Both fields are required.")
         st.markdown('</div>', unsafe_allow_html=True)
@@ -465,90 +394,99 @@ def render_smtp_settings():
     with col_instructions:
         st.markdown('<div class="nexus-card">', unsafe_allow_html=True)
         st.subheader("How to generate an App Password:")
-        st.markdown("""
-        1. Open your **Google Account** settings (`myaccount.google.com`).
-        2. Navigate to **Security** and ensure **2-Step Verification** is turned ON.
-        3. Search for **App passwords** in the search bar.
-        4. Create a new password named `NexusMail`.
-        5. Copy the 16-character password and paste it directly into the form.
-        """)
+        st.markdown("1. Go to **Google Account Security**.\n2. Ensure **2-Step Verification** is ON.\n3. Search for **App passwords**.\n4. Create a password named `NexusMail`.\n5. Paste the 16-character code here.")
         st.markdown('</div>', unsafe_allow_html=True)
 
 def render_upgrade_page():
-    st.markdown("<h2 style='color:#0F172A;'>Membership & Billing</h2>", unsafe_allow_html=True)
-    st.markdown("<p style='color:#64748B;'>Unlock higher relay velocity, enterprise endpoints, and unlimited lists.</p>", unsafe_allow_html=True)
+    st.markdown("<h2 style='color:#0F172A;'>Membership Plans</h2>", unsafe_allow_html=True)
     
-    _, col_card, _ = st.columns([1, 1.3, 1])
-    with col_card:
-        st.markdown("""
-        <div class="nexus-card" style="text-align: center; border: 2px solid #4F46E5;">
-            <span style="background-color: #EEF2FF; color: #4F46E5; font-weight: 700; font-size: 12px; padding: 4px 12px; border-radius: 12px; text-transform: uppercase;">
-                Commercial Tier
-            </span>
-            <h2 style="margin: 16px 0 0 0; color: #0F172A;">NexusMail Pro 🚀</h2>
-            <h1 style="color: #4F46E5; font-size: 46px; margin: 10px 0;">$29<span style="font-size: 16px; color: #64748B;"> / mo</span></h1>
-            <hr style="border: 0; border-top: 1px solid #E2E8F0; margin: 20px 0;">
-            <ul style="text-align: left; list-style: none; padding-left: 0; line-height: 2.2; color: #334155;">
-                <li>✅ <b>Unlimited</b> Bulk Outbound Volume</li>
-                <li>✅ High-Speed Google SMTP Relay Engine</li>
-                <li>✅ Audience List Manager & Contact Storage</li>
-                <li>✅ 24/7 Dedicated Server Priority</li>
-            </ul>
-            <br>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        # Payment Gateway Checkout Link (Stripe or Razorpay)
-        GATEWAY_URL = "https://buy.stripe.com/test_your_link_here"
-        st.markdown(f"""
-            <a href="{GATEWAY_URL}" target="_blank" style="text-decoration:none;">
-                <button style="width:100%; background-color:#4F46E5; color:white; padding:14px; border:none; border-radius:8px; font-size:16px; font-weight:bold; cursor:pointer;">
-                    💳 Upgrade Subscription Now
-                </button>
-            </a>
-        """, unsafe_allow_html=True)
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.markdown("<div class='nexus-card'><h3>Free Tier</h3><h2>₹0</h2><hr><ul><li>Platform access</li><li>Campaigns locked</li></ul></div>", unsafe_allow_html=True)
+    with c2:
+        st.markdown("<div class='nexus-card' style='border: 2px solid #06B6D4;'><h3>Plus Tier ⚡</h3><h2 style='color:#06B6D4;'>₹999/mo</h2><hr><ul><li><b>Unlock</b> Campaigns</li><li>Standard Support</li></ul></div>", unsafe_allow_html=True)
+    with c3:
+        st.markdown("<div class='nexus-card' style='border: 2px solid #4F46E5;'><h3>Pro Tier 🚀</h3><h2 style='color:#4F46E5;'>₹2499/mo</h2><hr><ul><li><b>Unlimited</b> Volume</li><li>Priority Relay Configs</li></ul></div>", unsafe_allow_html=True)
+
+    st.markdown('<div class="nexus-card">', unsafe_allow_html=True)
+    st.markdown("### ⚡ Instant UPI Upgrade")
+    st.markdown("""
+    To bypass payment gateway fees, we are processing immediate upgrades via UPI. 
+    
+    1. **Scan or Send:** Transfer your selected plan amount to UPI ID: **`7586994126@kotakbank`**
+    2. **Verify:** Email a screenshot of your successful transaction to **`admin@yourdomain.com`**.
+    3. **Activation:** Your workspace will be upgraded instantly upon verification.
+    """)
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # ==========================================
-# 6. SIDEBAR & MASTER ROUTING
+# 6. ADMIN CONTROL PANEL (HIDDEN)
+# ==========================================
+def render_admin_panel():
+    st.markdown("<h2 style='color:#EF4444;'>🛡️ Admin Control Panel</h2>", unsafe_allow_html=True)
+    
+    col1, col2 = st.columns([1, 1.5])
+    with col1:
+        st.markdown('<div class="nexus-card">', unsafe_allow_html=True)
+        st.subheader("Update User Access")
+        with st.form("admin_update_tier"):
+            target_email = st.text_input("Customer Email Address")
+            new_tier = st.selectbox("Assign New Tier", ["Free", "Plus", "Pro"])
+            
+            if st.form_submit_button("Force Membership Update", type="primary", use_container_width=True):
+                if target_email:
+                    try:
+                        supabase.table("subscriptions").upsert({"email": target_email, "tier": new_tier}).execute()
+                        st.success(f"✅ {target_email} updated to {new_tier}.")
+                    except Exception as e:
+                        st.error(f"Database error: {e}")
+                else:
+                    st.error("Enter a valid email.")
+        st.markdown('</div>', unsafe_allow_html=True)
+                    
+    with col2:
+        st.markdown('<div class="nexus-card">', unsafe_allow_html=True)
+        st.subheader("Subscription Database")
+        try:
+            res = supabase.table("subscriptions").select("*").execute()
+            df = pd.DataFrame(res.data)
+            st.dataframe(df, use_container_width=True, height=280)
+        except Exception as e:
+            st.error("Could not fetch users.")
+        st.markdown('</div>', unsafe_allow_html=True)
+
+# ==========================================
+# 7. SIDEBAR & MASTER ROUTING
 # ==========================================
 with st.sidebar:
     st.markdown("<h3 style='margin-bottom:0;'>🚀 Nexus Workspace</h3>", unsafe_allow_html=True)
+    
+    tier_colors = {"Free": "#94A3B8", "Plus": "#06B6D4", "Pro": "#4F46E5"}
+    active_color = tier_colors.get(st.session_state.tier, "#94A3B8")
+    
     st.markdown(f"""
     <div style='background-color:#1E293B; padding:10px 12px; border-radius:8px; margin:14px 0 20px 0; border:1px solid #334155;'>
         <div style='font-size:11px; color:#94A3B8; text-transform:uppercase; font-weight:600;'>Active Workspace</div>
         <div style='font-weight:600; font-size:13px; color:#F8FAFC; word-break:break-all;'>{st.session_state.user.email}</div>
-        <div style='margin-top:6px;'><span style='background:#4F46E5; color:white; font-size:10px; font-weight:700; padding:2px 8px; border-radius:10px;'>PRO ACTIVE</span></div>
+        <div style='margin-top:6px;'><span style='background:{active_color}; color:white; font-size:10px; font-weight:700; padding:2px 8px; border-radius:10px;'>{st.session_state.tier.upper()} PLAN</span></div>
     </div>
     """, unsafe_allow_html=True)
     
-    PAGES = ["📊 Dashboard", "🚀 Campaigns", "👥 Contact Lists", "⚙️ SMTP Settings", "💎 Upgrade to Pro"]
+    PAGES = ["📊 Dashboard", "🚀 Campaigns", "👥 Contact Lists", "⚙️ SMTP Settings", "💎 Upgrade Plan"]
+    
+    if st.session_state.user.email == ADMIN_EMAIL:
+        PAGES.append("🛡️ Admin Panel")
+        
     current_idx = PAGES.index(st.session_state.nav_page) if st.session_state.nav_page in PAGES else 0
     
-    selected_page = st.radio(
-        "Navigation",
-        PAGES,
-        index=current_idx,
-        label_visibility="collapsed"
-    )
+    selected_page = st.radio("Navigation", PAGES, index=current_idx, label_visibility="collapsed")
     
     if selected_page != st.session_state.nav_page:
         st.session_state.nav_page = selected_page
         st.rerun()
         
-    st.markdown("<br><br>", unsafe_allow_html=True)
-    
-    # Bottom Sidebar Card with functional routing
-    st.markdown("""
-    <div style='background: linear-gradient(180deg, rgba(79, 70, 229, 0.15) 0%, rgba(15, 23, 42, 0) 100%); border: 1px solid #4F46E5; border-radius: 10px; padding: 14px; text-align: center; margin-bottom: 12px;'>
-        <div style='font-weight:700; color:#A5B4FC; font-size:13px;'>👑 Pro Plan Enabled</div>
-        <div style='font-size:11px; color:#94A3B8; margin: 4px 0 10px 0;'>Outbound limits unlocked for commercial campaigns.</div>
-    </div>
-    """, unsafe_allow_html=True)
-    if st.button("Manage Plan →", key="sidebar_manage_plan", use_container_width=True):
-        navigate_to("💎 Upgrade to Pro")
-        
     st.divider()
-    if st.button("🚪 Log Out", key="sidebar_logout", use_container_width=True):
+    if st.button("🚪 Log Out", use_container_width=True):
         supabase.auth.sign_out()
         st.session_state.clear()
         st.rerun()
@@ -562,5 +500,7 @@ elif st.session_state.nav_page == "👥 Contact Lists":
     render_contact_lists()
 elif st.session_state.nav_page == "⚙️ SMTP Settings":
     render_smtp_settings()
-elif st.session_state.nav_page == "💎 Upgrade to Pro":
+elif st.session_state.nav_page == "💎 Upgrade Plan":
     render_upgrade_page()
+elif st.session_state.nav_page == "🛡️ Admin Panel":
+    render_admin_panel()
