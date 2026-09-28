@@ -1,8 +1,11 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import smtplib
 import requests
 import re
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 import time
 import os
 from supabase import create_client, Client
@@ -105,10 +108,22 @@ if 'user' not in st.session_state:
     st.session_state.user = None
 if 'nav_page' not in st.session_state:
     st.session_state.nav_page = "📊 Dashboard"
+
+# Engine Toggles
+if 'engine_choice' not in st.session_state:
+    st.session_state.engine_choice = "Google SMTP"
+    
+# Credentials
+if 'smtp_email' not in st.session_state:
+    st.session_state.smtp_email = ""
+if 'smtp_password' not in st.session_state:
+    st.session_state.smtp_password = ""
 if 'resend_api_key' not in st.session_state:
     st.session_state.resend_api_key = ""
-if 'sender_email' not in st.session_state:
-    st.session_state.sender_email = "onboarding@resend.dev"
+if 'resend_sender' not in st.session_state:
+    st.session_state.resend_sender = "onboarding@resend.dev"
+
+# Usage & Data
 if 'total_sent' not in st.session_state:
     st.session_state.total_sent = 0
 if 'saved_audience' not in st.session_state:
@@ -188,14 +203,20 @@ def render_dashboard():
         """, unsafe_allow_html=True)
         
     with kpi2:
-        is_api_active = bool(st.session_state.resend_api_key)
-        api_count = "Active" if is_api_active else "Offline"
-        api_color = "#10B981" if is_api_active else "#EF4444"
+        if st.session_state.engine_choice == "Google SMTP":
+            is_active = bool(st.session_state.smtp_email and st.session_state.smtp_password)
+            txt = "SMTP Connected" if is_active else "SMTP Offline"
+        else:
+            is_active = bool(st.session_state.resend_api_key)
+            txt = "API Connected" if is_active else "API Offline"
+            
+        color = "#10B981" if is_active else "#EF4444"
+        
         st.markdown(f"""
         <div class="nexus-card">
-            <span style='color:#64748B; font-size:13px; font-weight:600;'>API Connection</span>
-            <h2 style='margin:8px 0; color:#0F172A; font-size:32px;'>{api_count}</h2>
-            <span style='color:{api_color}; font-size:12px; font-weight:600;'>• HTTP Port 443</span>
+            <span style='color:#64748B; font-size:13px; font-weight:600;'>Current Engine</span>
+            <h2 style='margin:8px 0; color:#0F172A; font-size:24px;'>{st.session_state.engine_choice}</h2>
+            <span style='color:{color}; font-size:12px; font-weight:600;'>• {txt}</span>
         </div>
         """, unsafe_allow_html=True)
         
@@ -233,8 +254,8 @@ def render_dashboard():
         st.markdown("<h4 style='color:#0F172A; margin-bottom:12px;'>Quick Actions</h4>", unsafe_allow_html=True)
         if st.button("🚀 Launch Campaign", type="primary", use_container_width=True):
             navigate_to("🚀 Campaigns")
-        if st.button("⚙️ API Configuration", use_container_width=True):
-            navigate_to("⚙️ API Settings")
+        if st.button("⚙️ Configure Relay Engine", use_container_width=True):
+            navigate_to("⚙️ Relay Settings")
         if st.button("👥 Manage Contact Lists", use_container_width=True):
             navigate_to("👥 Contact Lists")
         st.markdown('</div>', unsafe_allow_html=True)
@@ -246,12 +267,21 @@ def render_campaign_launcher():
         st.error("🔒 **Upgrade Required:** Mass email launching is restricted on the Free Tier.")
         st.info("Please go to **💎 Upgrade Plan** in the sidebar to activate your Plus or Pro subscription.")
         st.stop()
-        
-    if not st.session_state.resend_api_key:
-        st.warning("⚠️ **API Key Missing:** Configure your Resend API Key before dispatching campaigns.")
-        if st.button("Configure API Key Now →"):
-            navigate_to("⚙️ API Settings")
-        return
+
+    # Pre-flight check based on chosen engine
+    engine = st.session_state.engine_choice
+    if engine == "Google SMTP":
+        if not st.session_state.smtp_email or not st.session_state.smtp_password:
+            st.warning("⚠️ **SMTP Credentials Missing:** Configure your Gmail relay before dispatching.")
+            if st.button("Configure Settings Now →"):
+                navigate_to("⚙️ Relay Settings")
+            return
+    else:
+        if not st.session_state.resend_api_key:
+            st.warning("⚠️ **API Key Missing:** Configure your Resend HTTP API before dispatching.")
+            if st.button("Configure Settings Now →"):
+                navigate_to("⚙️ Relay Settings")
+            return
 
     col_editor, col_target = st.columns([1.5, 1.0])
     
@@ -296,47 +326,90 @@ def render_campaign_launcher():
 
     st.markdown('<div class="nexus-card">', unsafe_allow_html=True)
     _, c_btn2, _ = st.columns([1, 1.5, 1])
+    
     with c_btn2:
-        if st.button("🚀 Execute Mass Email Dispatch", type="primary", use_container_width=True):
+        btn_label = f"🚀 Execute Dispatch via {engine}"
+        if st.button(btn_label, type="primary", use_container_width=True):
             if not subject.strip() or not body.strip():
                 st.error("Please supply both a subject line and email body.")
             elif not active_recipients:
                 st.error("No valid recipient email addresses detected.")
             else:
-                with st.status("Executing Resend HTTP API Dispatch...", expanded=True) as status_box:
-                    try:
-                        headers = {
-                            "Authorization": f"Bearer {st.session_state.resend_api_key}",
-                            "Content-Type": "application/json"
-                        }
-                        
-                        p_bar = st.progress(0)
-                        dispatched = 0
-                        
-                        for idx, to_address in enumerate(active_recipients):
-                            payload = {
-                                "from": st.session_state.sender_email,
-                                "to": [to_address],
-                                "subject": subject,
-                                "text": body
-                            }
+                with st.status(f"Establishing {engine} Relay...", expanded=True) as status_box:
+                    
+                    # --- ENGINE 1: GOOGLE SMTP ---
+                    if engine == "Google SMTP":
+                        try:
+                            st.write("Connecting to `smtp.gmail.com:587`...")
+                            server = smtplib.SMTP("smtp.gmail.com", 587, timeout=20)
+                            server.starttls()
+                            server.login(st.session_state.smtp_email, st.session_state.smtp_password)
+                            st.write("✅ Authentication verified. Commencing transmissions...")
                             
-                            response = requests.post("https://api.resend.com/emails", json=payload, headers=headers)
+                            p_bar = st.progress(0)
+                            dispatched = 0
                             
-                            if response.status_code == 200:
-                                dispatched += 1
-                                st.session_state.total_sent += 1
-                            else:
-                                st.write(f"⚠️ Failed for `{to_address}`: {response.text}")
+                            for idx, to_address in enumerate(active_recipients):
+                                try:
+                                    msg = MIMEMultipart()
+                                    msg['From'] = st.session_state.smtp_email
+                                    msg['To'] = to_address
+                                    msg['Subject'] = subject
+                                    msg.attach(MIMEText(body, 'plain'))
+                                    
+                                    server.send_message(msg)
+                                    dispatched += 1
+                                    st.session_state.total_sent += 1
+                                except Exception as send_err:
+                                    st.write(f"⚠️ Delivery failure for `{to_address}`: {send_err}")
+                                    
+                                p_bar.progress((idx + 1) / len(active_recipients))
+                                time.sleep(0.5) 
                                 
-                            p_bar.progress((idx + 1) / len(active_recipients))
-                            time.sleep(0.3) 
+                            server.quit()
+                            status_box.update(label=f"SMTP Campaign Dispatched! Delivered {dispatched} emails.", state="complete", expanded=False)
+                            st.balloons()
+                        except Exception as fatal_err:
+                            status_box.update(label="Campaign Terminated Abruptly", state="error", expanded=True)
+                            st.error(f"Critical SMTP Error: {fatal_err}. If on Render Free Tier, this port is blocked. Switch to Resend API in Relay Settings.")
+                    
+                    # --- ENGINE 2: RESEND HTTP API ---
+                    elif engine == "Resend API":
+                        try:
+                            st.write("Connecting securely via HTTPS (Port 443)...")
+                            headers = {
+                                "Authorization": f"Bearer {st.session_state.resend_api_key}",
+                                "Content-Type": "application/json"
+                            }
+                            st.write("✅ API configuration loaded. Commencing transmissions...")
                             
-                        status_box.update(label=f"Campaign Dispatched! Successfully delivered {dispatched} emails.", state="complete", expanded=False)
-                        st.balloons()
-                    except Exception as fatal_err:
-                        status_box.update(label="Campaign Terminated Abruptly", state="error", expanded=True)
-                        st.error(f"Critical API Error: {fatal_err}")
+                            p_bar = st.progress(0)
+                            dispatched = 0
+                            
+                            for idx, to_address in enumerate(active_recipients):
+                                payload = {
+                                    "from": st.session_state.resend_sender,
+                                    "to": [to_address],
+                                    "subject": subject,
+                                    "text": body
+                                }
+                                
+                                response = requests.post("https://api.resend.com/emails", json=payload, headers=headers)
+                                
+                                if response.status_code == 200:
+                                    dispatched += 1
+                                    st.session_state.total_sent += 1
+                                else:
+                                    st.write(f"⚠️ Failed for `{to_address}`: {response.text}")
+                                    
+                                p_bar.progress((idx + 1) / len(active_recipients))
+                                time.sleep(0.3) 
+                                
+                            status_box.update(label=f"API Campaign Dispatched! Delivered {dispatched} emails.", state="complete", expanded=False)
+                            st.balloons()
+                        except Exception as fatal_err:
+                            status_box.update(label="Campaign Terminated Abruptly", state="error", expanded=True)
+                            st.error(f"Critical API Error: {fatal_err}")
     st.markdown('</div>', unsafe_allow_html=True)
 
 def render_contact_lists():
@@ -376,29 +449,63 @@ def render_contact_lists():
             st.info("No contacts stored. Upload to begin.")
         st.markdown('</div>', unsafe_allow_html=True)
 
-def render_smtp_settings():
-    st.markdown("<h2 style='color:#0F172A;'>API Relay Configuration</h2>", unsafe_allow_html=True)
+def render_relay_settings():
+    st.markdown("<h2 style='color:#0F172A;'>Relay Configurations</h2>", unsafe_allow_html=True)
+    
     col_form, col_instructions = st.columns([1.3, 1.2])
     with col_form:
         st.markdown('<div class="nexus-card">', unsafe_allow_html=True)
-        st.subheader("Resend API Credentials")
-        with st.form("api_config_form"):
-            in_key = st.text_input("Resend API Key", value=st.session_state.resend_api_key, type="password", placeholder="re_123456...")
-            in_sender = st.text_input("Sender Email", value=st.session_state.sender_email, help="Use onboarding@resend.dev for testing, or your verified domain.")
+        st.subheader("Select Delivery Engine")
+        
+        engine = st.radio(
+            "Choose your outbound mail processor:",
+            ["Google SMTP", "Resend API"],
+            index=0 if st.session_state.engine_choice == "Google SMTP" else 1
+        )
+        st.session_state.engine_choice = engine
+        st.divider()
+        
+        with st.form("relay_config_form"):
+            if engine == "Google SMTP":
+                st.markdown("**Google Workspace / Gmail Credentials**")
+                in_email = st.text_input("Sender Email Address", value=st.session_state.smtp_email, placeholder="marketing@gmail.com")
+                in_password = st.text_input("Google 16-character App Password", value=st.session_state.smtp_password, type="password")
+            else:
+                st.markdown("**Resend HTTP API Credentials**")
+                in_email = st.text_input("Verified Sender Email", value=st.session_state.resend_sender, help="Use onboarding@resend.dev for free testing.")
+                in_password = st.text_input("Resend API Key", value=st.session_state.resend_api_key, type="password", placeholder="re_123456...")
             
-            if st.form_submit_button("Save API Configuration", type="primary", use_container_width=True):
-                if in_key:
-                    st.session_state.resend_api_key = in_key.strip()
-                    st.session_state.sender_email = in_sender.strip()
-                    st.success("API credentials saved successfully.")
+            if st.form_submit_button("Save Configuration", type="primary", use_container_width=True):
+                if engine == "Google SMTP":
+                    if in_email and in_password:
+                        st.session_state.smtp_email = in_email.strip()
+                        st.session_state.smtp_password = in_password.strip().replace(" ", "")
+                        st.success("✅ SMTP credentials saved successfully.")
+                    else:
+                        st.error("Both fields are required.")
                 else:
-                    st.error("API Key is required.")
+                    if in_email and in_password:
+                        st.session_state.resend_sender = in_email.strip()
+                        st.session_state.resend_api_key = in_password.strip()
+                        st.success("✅ API credentials saved successfully.")
+                    else:
+                        st.error("Both fields are required.")
         st.markdown('</div>', unsafe_allow_html=True)
         
     with col_instructions:
         st.markdown('<div class="nexus-card">', unsafe_allow_html=True)
-        st.subheader("Why HTTP API?")
-        st.markdown("Because Render blocks traditional SMTP ports (like 587) on free plans, NexusMail Pro uses Resend's secure HTTPS API (Port 443). This ensures 100% reliable message delivery with zero server blocks.")
+        st.subheader("Engine Differences Explained")
+        st.markdown("""
+        **Google SMTP (Port 587)**
+        * Best for local development and premium hosting.
+        * Uses your actual Gmail outbox.
+        * *Note:* Blocked by default on Render's Free Tier.
+        
+        **Resend API (Port 443)**
+        * Best for cloud deployment (works perfectly on Render Free).
+        * Uses highly secure HTTP infrastructure.
+        * Requires a free API key from Resend.com.
+        """)
         st.markdown('</div>', unsafe_allow_html=True)
 
 def render_upgrade_page():
@@ -476,7 +583,7 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
     
-    PAGES = ["📊 Dashboard", "🚀 Campaigns", "👥 Contact Lists", "⚙️ API Settings", "💎 Upgrade Plan"]
+    PAGES = ["📊 Dashboard", "🚀 Campaigns", "👥 Contact Lists", "⚙️ Relay Settings", "💎 Upgrade Plan"]
     
     if st.session_state.user.email == ADMIN_EMAIL:
         PAGES.append("🛡️ Admin Panel")
@@ -502,8 +609,8 @@ elif st.session_state.nav_page == "🚀 Campaigns":
     render_campaign_launcher()
 elif st.session_state.nav_page == "👥 Contact Lists":
     render_contact_lists()
-elif st.session_state.nav_page == "⚙️ API Settings":
-    render_smtp_settings()
+elif st.session_state.nav_page == "⚙️ Relay Settings":
+    render_relay_settings()
 elif st.session_state.nav_page == "💎 Upgrade Plan":
     render_upgrade_page()
 elif st.session_state.nav_page == "🛡️ Admin Panel":
