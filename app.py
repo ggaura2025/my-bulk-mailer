@@ -25,9 +25,9 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- 2. DATABASE CONNECTION (SUPABASE) ---
-# FIX: Removed st.secrets to prevent the "No secrets found" error on Render
-SUPABASE_URL = os.environ.get("https://ljiupodazjhkzpyyqyct.supabase.co", "")
-SUPABASE_KEY = os.environ.get("sb_publishable_RxHyVYNCwU4cSJfBunlTHA_Ir5pc2DX", "")
+# FIX: Look up the environment variable names properly
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
 
 if not SUPABASE_URL or not SUPABASE_KEY:
     st.error("⚠️ Database connection missing. Check Render Environment Variables.")
@@ -35,7 +35,6 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 
 @st.cache_resource
 def init_connection():
-    # FIX: Closed the parenthesis that was missing here
     return create_client(SUPABASE_URL, SUPABASE_KEY)
 
 supabase: Client = init_connection()
@@ -171,7 +170,6 @@ elif page == "🚀 Launch Campaign":
                 st.success(f"✅ Audience loaded: {len(emails)} recipients ready.")
                 
                 with st.expander("👀 Preview Target Audience"):
-                    # Uses a professional dataframe instead of simple text list
                     st.dataframe(pd.DataFrame(emails, columns=["Email Address"]), use_container_width=True)
             except Exception as e:
                 st.error(f"Failed to process file: {e}")
@@ -184,7 +182,6 @@ elif page == "🚀 Launch Campaign":
 
     st.divider()
     
-    # Action Bar using columns to control button width
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         if st.button("🚀 Blast Campaign", type="primary", use_container_width=True):
@@ -193,7 +190,6 @@ elif page == "🚀 Launch Campaign":
             elif not emails:
                 st.toast("No recipients found!", icon="❌")
             else:
-                # Modern animated status box
                 with st.status("Initializing Mail Servers...", expanded=True) as status:
                     try:
                         st.write("Connecting to Google SMTP relay...")
@@ -226,7 +222,7 @@ elif page == "🚀 Launch Campaign":
                             
                         server.quit()
                         status.update(label=f"Campaign Complete! Sent {success_count} emails.", state="complete", expanded=False)
-                        st.balloons() # Triggers celebration animation on success
+                        st.balloons()
                         
                     except Exception as e:
                         status.update(label="Campaign Failed", state="error", expanded=True)
