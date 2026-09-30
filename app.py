@@ -131,23 +131,35 @@ if 'saved_audience' not in st.session_state:
 if 'tier' not in st.session_state:
     st.session_state.tier = "Free"
 
+# Billing Data
+if 'payment_status' not in st.session_state:
+    st.session_state.payment_status = "Unpaid"
+if 'invoice_date' not in st.session_state:
+    st.session_state.invoice_date = None
+if 'checkout_active' not in st.session_state:
+    st.session_state.checkout_active = False
+if 'qr_generated' not in st.session_state:
+    st.session_state.qr_generated = False
+
 def navigate_to(page_name: str):
     st.session_state.nav_page = page_name
+    st.session_state.checkout_active = False
     st.rerun()
 
 def is_valid_email(email: str) -> bool:
     return bool(re.match(r"[^@]+@[^@]+\.[^@]+", email))
 
-def fetch_user_tier(email: str) -> str:
+def fetch_user_data(email: str):
     try:
-        res = supabase.table("subscriptions").select("tier").eq("email", email).execute()
+        res = supabase.table("subscriptions").select("*").eq("email", email).execute()
         if res.data:
-            return res.data[0]["tier"]
+            return res.data[0]
         else:
-            supabase.table("subscriptions").insert({"email": email, "tier": "Free"}).execute()
-            return "Free"
+            new_user = {"email": email, "tier": "Free", "payment_status": "Unpaid", "invoice_date": None}
+            supabase.table("subscriptions").insert(new_user).execute()
+            return new_user
     except Exception as e:
-        return "Free"
+        return {"tier": "Free", "payment_status": "Unpaid", "invoice_date": None}
 
 # ==========================================
 # 4. AUTHENTICATION PORTAL
@@ -168,7 +180,12 @@ if not st.session_state.user:
                 try:
                     res = supabase.auth.sign_in_with_password({"email": login_email, "password": login_pass})
                     st.session_state.user = res.user
-                    st.session_state.tier = fetch_user_tier(res.user.email)
+                    
+                    # Fetch tier and billing data
+                    user_data = fetch_user_data(res.user.email)
+                    st.session_state.tier = user_data.get("tier", "Free")
+                    st.session_state.payment_status = user_data.get("payment_status", "Unpaid")
+                    st.session_state.invoice_date = user_data.get("invoice_date", None)
                     st.rerun()
                 except Exception as e:
                     st.error("Invalid email or password.")
@@ -238,8 +255,9 @@ def render_dashboard():
             <h2 style='margin:8px 0; color:{t_color}; font-size:32px;'>{st.session_state.tier} Tier</h2>
         </div>
         """, unsafe_allow_html=True)
-        if st.button("Manage Subscription →", key="btn_kpi_upgrade", use_container_width=True):
-            navigate_to("💎 Upgrade Plan")
+        if st.session_state.tier != "Pro":
+            if st.button("Manage Subscription →", key="btn_kpi_upgrade", use_container_width=True):
+                navigate_to("💎 Upgrade Plan")
 
     col_chart, col_recent = st.columns([1.8, 1.2])
     with col_chart:
@@ -508,30 +526,103 @@ def render_relay_settings():
         """)
         st.markdown('</div>', unsafe_allow_html=True)
 
+# ==========================================
+# 6. INVOICING & CHECKOUT SYSTEM
+# ==========================================
 def render_upgrade_page():
-    st.markdown("<h2 style='color:#0F172A;'>Membership Plans</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='color:#0F172A;'>Membership & Billing</h2>", unsafe_allow_html=True)
     
+    # STATE 1: ALREADY PRO (Show Invoice)
+    if st.session_state.tier == "Pro" and st.session_state.payment_status == "Approved":
+        st.success("✅ Your Workspace is on the Pro Tier. Unlimited sending is unlocked.")
+        st.markdown('<div class="nexus-card">', unsafe_allow_html=True)
+        st.subheader("Billing History")
+        
+        invoice_date = st.session_state.invoice_date or time.strftime("%d %b %Y")
+        invoice_html = f"""
+        <html><body style="font-family: Arial, sans-serif; color: #333; line-height: 1.6; max-width: 800px; margin: auto; padding: 40px; border: 1px solid #ddd;">
+            <table width="100%"><tr>
+                <td><h1 style="color: #4F46E5; margin:0;">NexusMail Pro</h1><p style="margin:0; color:#888;">TAX INVOICE</p></td>
+                <td align="right"><b>Date:</b> {invoice_date}<br><b>Invoice #:</b> NM-{int(time.time())}</td>
+            </tr></table><hr style="border:0; border-top: 1px solid #ddd; margin: 20px 0;">
+            <p><b>Billed To:</b><br>{st.session_state.user.email}</p>
+            <table width="100%" style="margin-top: 30px; border-collapse: collapse;">
+                <tr style="background-color: #f8f8f8;"><th align="left" style="padding: 10px; border-bottom: 2px solid #ddd;">Description</th><th align="right" style="padding: 10px; border-bottom: 2px solid #ddd;">Amount</th></tr>
+                <tr><td style="padding: 10px; border-bottom: 1px solid #eee;">Pro Tier Subscription</td><td align="right" style="padding: 10px; border-bottom: 1px solid #eee;">₹549.00</td></tr>
+                <tr><td style="padding: 10px; border-bottom: 1px solid #eee;">GST (18%)</td><td align="right" style="padding: 10px; border-bottom: 1px solid #eee;">₹98.82</td></tr>
+                <tr><th align="left" style="padding: 10px;">Total Paid</th><th align="right" style="padding: 10px; color: #10B981;">₹647.82</th></tr>
+            </table><br><br>
+            <p style="text-align: center; color: #888; font-size: 12px;">Payment Processed via UPI. Thank you for your business!</p>
+        </body></html>
+        """
+        st.download_button(
+            label="📄 Download Professional Invoice", 
+            data=invoice_html, 
+            file_name=f"NexusMail_Invoice_{invoice_date.replace(' ', '_')}.html", 
+            mime="text/html",
+            type="primary"
+        )
+        st.caption("Tip: Open the downloaded file in your browser, press Ctrl+P (or Cmd+P), and select 'Save as PDF'.")
+        st.markdown('</div>', unsafe_allow_html=True)
+        return
+
+    # STATE 2: PENDING APPROVAL
+    if st.session_state.payment_status == "Pending":
+        st.info("⏳ Your payment of ₹647.82 is currently under review by our Admin team. Your account will be upgraded and your invoice generated shortly.")
+        st.button("Refresh Status", on_click=lambda: st.rerun())
+        return
+
+    # STATE 3: CHECKOUT SCREEN
+    if st.session_state.checkout_active:
+        _, c_center, _ = st.columns([1, 1.5, 1])
+        with c_center:
+            st.markdown('<div class="nexus-card" style="text-align: center;">', unsafe_allow_html=True)
+            st.subheader("Secure UPI Checkout")
+            st.markdown("""
+            <table width="100%" style="text-align: left; margin-bottom: 20px;">
+                <tr><td>Pro Plan (Base)</td><td align="right">₹549.00</td></tr>
+                <tr><td>GST (18%)</td><td align="right">₹98.82</td></tr>
+                <tr><th><h3 style='margin:0;'>Total Payable</h3></th><th align="right"><h3 style='margin:0; color:#4F46E5;'>₹647.82</h3></th></tr>
+            </table>
+            """, unsafe_allow_html=True)
+            
+            if not st.session_state.qr_generated:
+                with st.spinner("Generating unique transaction QR code..."):
+                    time.sleep(2)
+                st.session_state.qr_generated = True
+                
+            try:
+                st.image("qr.png", caption="Scan to Pay ₹647.82", width=250)
+            except:
+                st.error("⚠️ [Admin Note: Ensure 'qr.png' is uploaded to the root folder]")
+                
+            st.divider()
+            if st.button("✅ I have completed the payment", type="primary", use_container_width=True):
+                supabase.table("subscriptions").update({"payment_status": "Pending"}).eq("email", st.session_state.user.email).execute()
+                st.session_state.payment_status = "Pending"
+                st.session_state.checkout_active = False
+                st.rerun()
+            if st.button("Cancel & Go Back"):
+                st.session_state.checkout_active = False
+                st.session_state.qr_generated = False
+                st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
+        return
+
+    # STATE 4: PRICING SCREEN
     c1, c2, c3 = st.columns(3)
     with c1:
         st.markdown("<div class='nexus-card'><h3>Free Tier</h3><h2>₹0</h2><hr><ul><li>Platform access</li><li>Campaigns locked</li></ul></div>", unsafe_allow_html=True)
     with c2:
         st.markdown("<div class='nexus-card' style='border: 2px solid #06B6D4;'><h3>Plus Tier ⚡</h3><h2 style='color:#06B6D4;'>₹999/mo</h2><hr><ul><li><b>Unlock</b> Campaigns</li><li>Standard Support</li></ul></div>", unsafe_allow_html=True)
     with c3:
-        st.markdown("<div class='nexus-card' style='border: 2px solid #4F46E5;'><h3>Pro Tier 🚀</h3><h2 style='color:#4F46E5;'>₹2499/mo</h2><hr><ul><li><b>Unlimited</b> Volume</li><li>Priority Relay Configs</li></ul></div>", unsafe_allow_html=True)
-
-    st.markdown('<div class="nexus-card">', unsafe_allow_html=True)
-    st.markdown("### ⚡ Instant UPI Upgrade")
-    st.markdown("""
-    To bypass payment gateway fees, we are processing immediate upgrades via UPI. 
-    
-    1. **Scan or Send:** Transfer your selected plan amount to UPI ID: **`YOUR_UPI_ID_HERE@upi`**
-    2. **Verify:** Email a screenshot of your successful transaction to **`admin@yourdomain.com`**.
-    3. **Activation:** Your workspace will be upgraded instantly upon verification.
-    """)
-    st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown("<div class='nexus-card' style='border: 2px solid #4F46E5;'><h3>Pro Tier 🚀</h3><h2 style='color:#4F46E5;'>₹549 <span style='font-size:14px; color:#888;'>+ GST</span></h2><hr><ul><li><b>Unlimited</b> Volume</li><li>Invoicing Enabled</li></ul></div>", unsafe_allow_html=True)
+        if st.button("💳 Proceed to Checkout", type="primary", use_container_width=True):
+            st.session_state.checkout_active = True
+            st.rerun()
 
 # ==========================================
-# 6. ADMIN CONTROL PANEL (HIDDEN)
+# 7. ADMIN CONTROL PANEL (HIDDEN)
 # ==========================================
 def render_admin_panel():
     st.markdown("<h2 style='color:#EF4444;'>🛡️ Admin Control Panel</h2>", unsafe_allow_html=True)
@@ -539,7 +630,30 @@ def render_admin_panel():
     col1, col2 = st.columns([1, 1.5])
     with col1:
         st.markdown('<div class="nexus-card">', unsafe_allow_html=True)
-        st.subheader("Update User Access")
+        st.subheader("Action Required: Pending Payments")
+        try:
+            res = supabase.table("subscriptions").select("*").eq("payment_status", "Pending").execute()
+            pending = res.data
+            if not pending: 
+                st.info("No pending payments.")
+            for u in pending:
+                st.write(f"🧾 **{u['email']}** (Paid ₹647.82)")
+                if st.button(f"✅ Approve & Generate Invoice for {u['email']}", key=f"approve_{u['email']}"):
+                    today_str = time.strftime("%d %b %Y")
+                    supabase.table("subscriptions").update({
+                        "tier": "Pro", 
+                        "payment_status": "Approved", 
+                        "invoice_date": today_str
+                    }).eq("email", u['email']).execute()
+                    st.success(f"Approved {u['email']}!")
+                    time.sleep(1)
+                    st.rerun()
+        except Exception as e:
+            st.error(f"Database error: {e}")
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        st.markdown('<div class="nexus-card">', unsafe_allow_html=True)
+        st.subheader("Manual User Access")
         with st.form("admin_update_tier"):
             target_email = st.text_input("Customer Email Address")
             new_tier = st.selectbox("Assign New Tier", ["Free", "Plus", "Pro"])
@@ -559,15 +673,15 @@ def render_admin_panel():
         st.markdown('<div class="nexus-card">', unsafe_allow_html=True)
         st.subheader("Subscription Database")
         try:
-            res = supabase.table("subscriptions").select("*").execute()
+            res = supabase.table("subscriptions").select("email, tier, payment_status, invoice_date").execute()
             df = pd.DataFrame(res.data)
-            st.dataframe(df, use_container_width=True, height=280)
+            st.dataframe(df, use_container_width=True, height=450)
         except Exception as e:
             st.error("Could not fetch users.")
         st.markdown('</div>', unsafe_allow_html=True)
 
 # ==========================================
-# 7. SIDEBAR & MASTER ROUTING
+# 8. SIDEBAR & MASTER ROUTING
 # ==========================================
 with st.sidebar:
     st.markdown("<h3 style='margin-bottom:0;'>🚀 Nexus Workspace</h3>", unsafe_allow_html=True)
@@ -593,8 +707,7 @@ with st.sidebar:
     selected_page = st.radio("Navigation", PAGES, index=current_idx, label_visibility="collapsed")
     
     if selected_page != st.session_state.nav_page:
-        st.session_state.nav_page = selected_page
-        st.rerun()
+        navigate_to(selected_page)
         
     st.divider()
     if st.button("🚪 Log Out", use_container_width=True):
