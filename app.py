@@ -166,6 +166,11 @@ if 'plan_months' not in st.session_state: st.session_state.plan_months = 1
 if 'checkout_active' not in st.session_state: st.session_state.checkout_active = False
 if 'qr_generated' not in st.session_state: st.session_state.qr_generated = False
 
+# Billing Profile Details
+if 'billing_name' not in st.session_state: st.session_state.billing_name = ""
+if 'billing_address' not in st.session_state: st.session_state.billing_address = ""
+if 'billing_phone' not in st.session_state: st.session_state.billing_phone = ""
+
 def navigate_to(page_name: str):
     st.session_state.nav_page = page_name
     st.session_state.checkout_active = False
@@ -201,7 +206,16 @@ def fetch_user_data(email: str):
                     
             return u_data
         else:
-            new_user = {"email": email, "tier": "Free", "payment_status": "Unpaid", "invoice_date": None, "plan_months": 1}
+            new_user = {
+                "email": email, 
+                "tier": "Free", 
+                "payment_status": "Unpaid", 
+                "invoice_date": None, 
+                "plan_months": 1,
+                "billing_name": "",
+                "billing_address": "",
+                "billing_phone": ""
+            }
             supabase.table("subscriptions").insert(new_user).execute()
             return new_user
     except Exception:
@@ -241,6 +255,9 @@ if not st.session_state.user:
                     st.session_state.payment_status = u_data.get("payment_status", "Unpaid")
                     st.session_state.invoice_date = u_data.get("invoice_date", None)
                     st.session_state.plan_months = u_data.get("plan_months", 1)
+                    st.session_state.billing_name = u_data.get("billing_name", "")
+                    st.session_state.billing_address = u_data.get("billing_address", "")
+                    st.session_state.billing_phone = u_data.get("billing_phone", "")
                     st.rerun()
                 except Exception:
                     st.error("Invalid Username or Password.")
@@ -553,6 +570,15 @@ def render_upgrade_page():
         invoice_date = st.session_state.invoice_date or time.strftime("%d %b %Y")
         disp_username = st.session_state.user.email.replace("@nexus.app", "")
         
+        # Determine receipt number and customer number based on email
+        receipt_no = int(time.time())
+        customer_no = str(abs(hash(st.session_state.user.email)))[:9]
+        
+        # Determine Billing details with fallbacks
+        b_name = st.session_state.billing_name if st.session_state.billing_name else disp_username
+        b_address = st.session_state.billing_address.replace('\n', '<br>') if st.session_state.billing_address else "Address Not Provided"
+        b_phone = st.session_state.billing_phone if st.session_state.billing_phone else "Phone Not Provided"
+        
         try:
             inv_dt = datetime.strptime(invoice_date, "%d %b %Y")
             exp_dt = inv_dt + timedelta(days=30 * months)
@@ -561,25 +587,109 @@ def render_upgrade_page():
         except: pass
         
         invoice_html = f"""
-        <html><body style="font-family: Arial, sans-serif; color: #333; line-height: 1.6; max-width: 800px; margin: auto; padding: 40px; border: 1px solid #ddd; border-radius: 12px;">
-            <table width="100%"><tr>
-                <td><h1 style="color: #4F46E5; margin:0;">NexusMail Pro</h1><p style="margin:0; color:#888;">TAX INVOICE</p></td>
-                <td align="right"><b>Date:</b> {invoice_date}<br><b>Invoice #:</b> NM-{int(time.time())}</td>
-            </tr></table><hr style="border:0; border-top: 1px solid #ddd; margin: 20px 0;">
-            <p><b>Billed To (Username):</b><br>{disp_username}</p>
-            <table width="100%" style="margin-top: 30px; border-collapse: collapse;">
-                <tr style="background-color: #f8f8f8;"><th align="left" style="padding: 10px; border-bottom: 2px solid #ddd;">Description</th><th align="right" style="padding: 10px; border-bottom: 2px solid #ddd;">Amount</th></tr>
-                <tr><td style="padding: 10px; border-bottom: 1px solid #eee;">Pro Tier Subscription ({months} Months)</td><td align="right" style="padding: 10px; border-bottom: 1px solid #eee;">₹{base_price:.2f}</td></tr>
-                <tr><td style="padding: 10px; border-bottom: 1px solid #eee;">GST (18%)</td><td align="right" style="padding: 10px; border-bottom: 1px solid #eee;">₹{gst:.2f}</td></tr>
-                <tr><th align="left" style="padding: 10px; font-size: 18px;">Total Paid</th><th align="right" style="padding: 10px; color: #10B981; font-size: 18px;">₹{total_price:.2f}</th></tr>
-            </table><br><br>
-            <p style="text-align: center; color: #888; font-size: 12px; margin-top: 40px;">Payment Processed Securely. Thank you for your business!</p>
-        </body></html>
+        <div style="font-family: Arial, sans-serif; color: #000; font-size: 11px; max-width: 800px; margin: 0 auto; padding: 40px; background: #fff; border: 1px solid #ddd;">
+            <h2 style="font-size: 16px; margin: 0 0 5px 0; font-weight: normal;">Receipt</h2>
+            <p style="margin: 0; font-size: 11px; font-weight: bold;">№ {receipt_no}</p>
+            <hr style="border: 0; border-top: 1px solid #ddd; margin: 20px 0;">
+
+            <table width="100%" style="font-size: 11px; margin-bottom: 20px;">
+                <tr>
+                    <td width="50%" valign="top">
+                        <p style="margin: 0 0 5px 0; font-size: 9px; font-weight: bold; letter-spacing: 1px;">DATE:</p>
+                        <p style="margin: 0 0 15px 0;">{invoice_date}</p>
+                        <p style="margin: 0 0 5px 0; font-size: 9px; font-weight: bold; letter-spacing: 1px;">CUSTOMER #:</p>
+                        <p style="margin: 0 0 15px 0;">{customer_no}</p>
+                        <p style="margin: 0 0 5px 0; font-size: 9px; font-weight: bold; letter-spacing: 1px;">BILL TO:</p>
+                        <p style="margin: 0; line-height: 1.4;">{b_name}<br>{b_address}<br>{b_phone}</p>
+                    </td>
+                    <td width="50%" valign="bottom" align="right">
+                        <table width="100%" style="font-size: 11px;">
+                            <tr>
+                                <td align="left" valign="bottom">
+                                    <p style="margin: 0 0 5px 0; font-size: 9px; font-weight: bold; letter-spacing: 1px;">PAYMENT:</p>
+                                    UPI
+                                </td>
+                                <td align="right" valign="bottom">₹{total_price:,.2f}</td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+            </table>
+
+            <hr style="border: 0; border-top: 1px solid #ddd; margin: 20px 0;">
+
+            <table width="100%" style="font-size: 11px;">
+                <tr><td align="left" style="padding-bottom: 15px;"><b>Previous Balance</b></td><td align="right" style="padding-bottom: 15px;">₹{total_price:,.2f}</td></tr>
+                <tr><td align="left" style="padding-bottom: 15px;"><b>Received Payment</b></td><td align="right" style="padding-bottom: 15px;">(₹{total_price:,.2f})</td></tr>
+                <tr><td align="left"><b>Balance Due (INR)</b></td><td align="right"><b>₹0.00</b></td></tr>
+            </table>
+
+            <hr style="border: 0; border-top: 1px solid #ddd; margin: 20px 0;">
+
+            <table width="100%" style="font-size: 11px; border-collapse: collapse;">
+                <tr style="border-bottom: 1px solid #ddd;">
+                    <th align="left" style="padding-bottom: 10px;">Term</th>
+                    <th align="left" style="padding-bottom: 10px;">Product</th>
+                    <th align="right" style="padding-bottom: 10px;">Amount</th>
+                </tr>
+                <tr>
+                    <td align="left" style="padding-top: 15px;">{months} yrs</td>
+                    <td align="left" style="padding-top: 15px;">NexusMail Pro Subscription<br><span style="color: #666;">Tier Upgrade</span></td>
+                    <td align="right" style="padding-top: 15px;">₹{base_price:,.2f}</td>
+                </tr>
+            </table>
+
+            <div style="margin-top: 60px;">
+                <table width="100%" style="font-size: 11px;">
+                    <tr>
+                        <td width="50%"></td>
+                        <td width="50%">
+                            <table width="100%" style="font-size: 11px;">
+                                <tr><td align="left" style="padding-bottom: 5px;"><b>Subtotal</b></td><td align="right" style="padding-bottom: 5px;"><b>₹{base_price:,.2f}</b></td></tr>
+                                <tr><td align="left" style="padding-bottom: 5px;">Taxes</td><td align="right" style="padding-bottom: 5px;">₹{gst:,.2f}</td></tr>
+                                <tr><td align="left" style="padding-bottom: 15px;">Fees</td><td align="right" style="padding-bottom: 15px;">₹0.00</td></tr>
+                                <tr><td colspan="2"><hr style="border: 0; border-top: 1px solid #ddd; margin: 0 0 15px 0;"></td></tr>
+                                <tr><td align="left"><b>Total (INR)</b></td><td align="right"><b>₹{total_price:,.2f}</b></td></tr>
+                            </table>
+                        </td>
+                    </tr>
+                </table>
+            </div>
+
+            <hr style="border: 0; border-top: 1px solid #ddd; margin: 30px 0;">
+
+            <p style="font-size: 9px; font-weight: bold; letter-spacing: 1px; margin-bottom: 15px;">REFERENCE</p>
+            <table width="100%" style="font-size: 11px; margin-bottom: 30px;">
+                <tr>
+                    <td align="left" width="50%" style="padding-left: 20px;"><b>Taxes</b></td>
+                    <td align="right" width="50%">₹{gst:,.2f}</td>
+                </tr>
+            </table>
+
+            <table width="100%" style="font-size: 11px;">
+                <tr>
+                    <td align="left">
+                        NexusMail Pro<br>
+                        123 Enterprise Avenue,<br>
+                        Tech Park, Sector 4<br>
+                        India<br>
+                        GSTIN: 9917IND29016OS6
+                    </td>
+                    <td align="right" valign="bottom">
+                        <table width="100%" style="font-size: 11px;">
+                            <tr style="background-color: #f8f8f8;"><td align="left" style="padding: 5px;">Net</td><td align="left" style="padding: 5px;">₹{base_price:,.2f}</td><td align="left" style="padding: 5px;">IGST (18.00%)</td><td align="right" style="padding: 5px;">₹{gst:,.2f}</td></tr>
+                        </table>
+                    </td>
+                </tr>
+            </table>
+            <br>
+            <p style="font-size: 11px; text-decoration: underline;">Universal Terms of Service</p>
+        </div>
         """
         st.download_button(
-            label="📄 Download Professional Tax Invoice", 
+            label="📄 Download Professional Tax Receipt", 
             data=invoice_html, 
-            file_name=f"NexusMail_Invoice_{invoice_date.replace(' ', '_')}.html", 
+            file_name=f"NexusMail_Receipt_{invoice_date.replace(' ', '_')}.html", 
             mime="text/html",
             type="primary"
         )
@@ -598,8 +708,9 @@ def render_upgrade_page():
 
     # STATE 3: CHECKOUT SCREEN
     if st.session_state.checkout_active:
-        _, c_center, _ = st.columns([1, 1.5, 1])
-        with c_center:
+        col_checkout, col_billing = st.columns([1.2, 1])
+        
+        with col_checkout:
             st.markdown('<div class="nexus-card" style="text-align: center;">', unsafe_allow_html=True)
             st.markdown("<h3>Secure Checkout Portal</h3>", unsafe_allow_html=True)
             
@@ -626,19 +737,38 @@ def render_upgrade_page():
             try:
                 st.image("qr.png", caption=f"Scan & Pay Exact Amount: ₹{calc_total:.2f}", width=250)
             except:
-                st.error("⚠️ [Admin Error: 'qr.png' missing from repository]")
-                
+                st.error("⚠️️ [Admin Error: 'qr.png' missing from repository]")
+            st.markdown('</div>', unsafe_allow_html=True)
+            
+        with col_billing:
+            st.markdown('<div class="nexus-card">', unsafe_allow_html=True)
+            st.markdown("<h3>Billing Information</h3>", unsafe_allow_html=True)
+            st.caption("These details will appear on your official tax receipt.")
+            
+            bill_name = st.text_input("Full Name / Company Name", value=st.session_state.billing_name)
+            bill_address = st.text_area("Full Address (Include PIN Code)", value=st.session_state.billing_address)
+            bill_phone = st.text_input("Phone Number", value=st.session_state.billing_phone)
+            
             st.divider()
             if st.button("✅ Confirm Payment Sent", type="primary", use_container_width=True):
-                supabase.table("subscriptions").update({
-                    "payment_status": "Pending",
-                    "plan_months": selected_months
-                }).eq("email", st.session_state.user.email).execute()
-                
-                st.session_state.payment_status = "Pending"
-                st.session_state.plan_months = selected_months
-                st.session_state.checkout_active = False
-                st.rerun()
+                if not bill_name or not bill_address or not bill_phone:
+                    st.error("Please fill out all billing details for your invoice.")
+                else:
+                    supabase.table("subscriptions").update({
+                        "payment_status": "Pending",
+                        "plan_months": selected_months,
+                        "billing_name": bill_name,
+                        "billing_address": bill_address,
+                        "billing_phone": bill_phone
+                    }).eq("email", st.session_state.user.email).execute()
+                    
+                    st.session_state.payment_status = "Pending"
+                    st.session_state.plan_months = selected_months
+                    st.session_state.billing_name = bill_name
+                    st.session_state.billing_address = bill_address
+                    st.session_state.billing_phone = bill_phone
+                    st.session_state.checkout_active = False
+                    st.rerun()
                 
             if st.button("Cancel Order"):
                 st.session_state.checkout_active = False
@@ -719,12 +849,12 @@ def render_admin_panel():
         st.markdown('<div class="nexus-card">', unsafe_allow_html=True)
         st.markdown("<h4>Global User Database</h4>", unsafe_allow_html=True)
         try:
-            res = supabase.table("subscriptions").select("email, tier, payment_status, invoice_date, plan_months").execute()
+            res = supabase.table("subscriptions").select("email, tier, payment_status, invoice_date, plan_months, billing_name").execute()
             df = pd.DataFrame(res.data)
             
             if not df.empty:
                 df['email'] = df['email'].str.replace("@nexus.app", "")
-                df.rename(columns={'email': 'Username', 'tier': 'Plan', 'payment_status': 'Status', 'invoice_date': 'Billed On', 'plan_months': 'Duration'}, inplace=True)
+                df.rename(columns={'email': 'Username', 'tier': 'Plan', 'payment_status': 'Status', 'invoice_date': 'Billed On', 'plan_months': 'Duration', 'billing_name': 'Bill Name'}, inplace=True)
             
             st.dataframe(df, use_container_width=True, height=650)
         except Exception as e: st.error("Could not fetch database.")
@@ -769,6 +899,6 @@ with st.sidebar:
 if st.session_state.nav_page == "📊 Dashboard": render_dashboard()
 elif st.session_state.nav_page == "🚀 Campaigns": render_campaign_launcher()
 elif st.session_state.nav_page == "👥 Contact Lists": render_contact_lists()
-elif st.session_state.nav_page == "⚙️️ Relay Settings": render_relay_settings()
+elif st.session_state.nav_page == "⚙️ Relay Settings": render_relay_settings()
 elif st.session_state.nav_page == "💎 Upgrade Plan": render_upgrade_page()
 elif st.session_state.nav_page == "🛡️ Admin Panel": render_admin_panel()
