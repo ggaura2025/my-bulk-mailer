@@ -169,24 +169,31 @@ def fetch_user_data(email: str):
         }
 
 # ==========================================
-# 4. AUTHENTICATION PORTAL
+# 4. AUTHENTICATION PORTAL (CLIENT ONLY)
 # ==========================================
 if not st.session_state.user:
     st.markdown("<br><br><h1 style='text-align: center; color: #0F172A;'>NexusMail Pro 🚀</h1>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align: center; color: #64748B; font-size: 16px;'>High-Performance Email Marketing & Outreach Engine</p><br>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: #64748B; font-size: 16px;'>Enterprise Email Marketing & Outreach Engine</p><br>", unsafe_allow_html=True)
     
-    _, col_auth, _ = st.columns([1, 1.3, 1])
+    _, col_auth, _ = st.columns([1, 1.2, 1])
     with col_auth:
-        tab_login, tab_register = st.tabs(["🔐 Secure Log In", "✨ Create Account"])
+        st.markdown('<div class="nexus-card">', unsafe_allow_html=True)
+        st.markdown("<h3 style='text-align: center; color: #0F172A; margin-bottom: 20px;'>🔐 Secure Log In</h3>", unsafe_allow_html=True)
         
-        with tab_login:
-            st.markdown("<br>", unsafe_allow_html=True)
-            login_email = st.text_input("Work Email", key="auth_login_email")
-            login_pass = st.text_input("Password", type="password", key="auth_login_pass")
-            
-            if st.button("Access Command Center", type="primary", use_container_width=True):
+        login_username = st.text_input("Username", key="auth_login_username")
+        login_pass = st.text_input("Password", type="password", key="auth_login_pass")
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("Access Command Center", type="primary", use_container_width=True):
+            if not login_username or not login_pass:
+                st.error("Please enter both Username and Password.")
+            else:
                 try:
-                    res = supabase.auth.sign_in_with_password({"email": login_email, "password": login_pass})
+                    # Append proxy domain if not an email (Allows Admin to still use their real email)
+                    raw_user = login_username.strip()
+                    auth_email = raw_user if "@" in raw_user else f"{raw_user}@nexus.app"
+                    
+                    res = supabase.auth.sign_in_with_password({"email": auth_email, "password": login_pass})
                     st.session_state.user = res.user
                     
                     # Fetch comprehensive user data including billing
@@ -197,19 +204,9 @@ if not st.session_state.user:
                     st.session_state.plan_months = u_data.get("plan_months", 1)
                     st.rerun()
                 except Exception as e:
-                    st.error("Invalid email or password.")
+                    st.error("Invalid Username or Password.")
                     
-        with tab_register:
-            st.markdown("<br>", unsafe_allow_html=True)
-            reg_email = st.text_input("Work Email", key="auth_reg_email", help="Enter a valid email address")
-            reg_pass = st.text_input("Choose Password", type="password", key="auth_reg_pass")
-            
-            if st.button("Register Workspace", type="primary", use_container_width=True):
-                try:
-                    supabase.auth.sign_up({"email": reg_email, "password": reg_pass})
-                    st.success("✅ Account created. Please switch to the login tab.")
-                except Exception as e:
-                    st.error(f"Registration failed: {e}")
+        st.markdown('</div>', unsafe_allow_html=True)
     st.stop()
 
 # ==========================================
@@ -298,7 +295,6 @@ def render_campaign_launcher():
         st.info("Please go to **💎 Upgrade Plan** in the sidebar to activate your Plus or Pro subscription.")
         st.stop()
 
-    # Pre-flight check based on chosen engine
     engine = st.session_state.engine_choice
     if engine == "Google SMTP":
         if not st.session_state.smtp_email or not st.session_state.smtp_password:
@@ -310,7 +306,7 @@ def render_campaign_launcher():
         if not st.session_state.resend_api_key:
             st.warning("⚠️ **API Key Missing:** Configure your Resend HTTP API before dispatching.")
             if st.button("Configure Settings Now →"):
-                navigate_to("⚙️ Relay Settings")
+                navigate_to("⚙️️ Relay Settings")
             return
 
     col_editor, col_target = st.columns([1.5, 1.0])
@@ -366,8 +362,6 @@ def render_campaign_launcher():
                 st.error("No valid recipient email addresses detected.")
             else:
                 with st.status(f"Establishing {engine} Relay...", expanded=True) as status_box:
-                    
-                    # --- ENGINE 1: GOOGLE SMTP ---
                     if engine == "Google SMTP":
                         try:
                             st.write("Connecting to `smtp.gmail.com:587`...")
@@ -402,8 +396,6 @@ def render_campaign_launcher():
                         except Exception as fatal_err:
                             status_box.update(label="Campaign Terminated Abruptly", state="error", expanded=True)
                             st.error(f"Critical SMTP Error: {fatal_err}. If on Render Free Tier, this port is blocked. Switch to Resend API in Relay Settings.")
-                    
-                    # --- ENGINE 2: RESEND HTTP API ---
                     elif engine == "Resend API":
                         try:
                             st.write("Connecting securely via HTTPS (Port 443)...")
@@ -550,7 +542,6 @@ def render_upgrade_page():
         st.markdown('<div class="nexus-card">', unsafe_allow_html=True)
         st.subheader("Billing History")
         
-        # Calculate dynamic amounts based on months paid
         months = st.session_state.plan_months
         if not months: months = 1
         base_price = 549.00 * months
@@ -558,13 +549,15 @@ def render_upgrade_page():
         total_price = base_price + gst
         
         invoice_date = st.session_state.invoice_date or time.strftime("%d %b %Y")
+        disp_username = st.session_state.user.email.replace("@nexus.app", "")
+        
         invoice_html = f"""
         <html><body style="font-family: Arial, sans-serif; color: #333; line-height: 1.6; max-width: 800px; margin: auto; padding: 40px; border: 1px solid #ddd;">
             <table width="100%"><tr>
                 <td><h1 style="color: #4F46E5; margin:0;">NexusMail Pro</h1><p style="margin:0; color:#888;">TAX INVOICE</p></td>
                 <td align="right"><b>Date:</b> {invoice_date}<br><b>Invoice #:</b> NM-{int(time.time())}</td>
             </tr></table><hr style="border:0; border-top: 1px solid #ddd; margin: 20px 0;">
-            <p><b>Billed To:</b><br>{st.session_state.user.email}</p>
+            <p><b>Billed To (Username):</b><br>{disp_username}</p>
             <table width="100%" style="margin-top: 30px; border-collapse: collapse;">
                 <tr style="background-color: #f8f8f8;"><th align="left" style="padding: 10px; border-bottom: 2px solid #ddd;">Description</th><th align="right" style="padding: 10px; border-bottom: 2px solid #ddd;">Amount</th></tr>
                 <tr><td style="padding: 10px; border-bottom: 1px solid #eee;">Pro Tier Subscription ({months} Months)</td><td align="right" style="padding: 10px; border-bottom: 1px solid #eee;">₹{base_price:.2f}</td></tr>
@@ -599,7 +592,6 @@ def render_upgrade_page():
             st.markdown('<div class="nexus-card" style="text-align: center;">', unsafe_allow_html=True)
             st.subheader("Secure UPI Checkout")
             
-            # Dynamic Plan Calculator
             selected_months = st.selectbox("Select Subscription Duration", [1, 3, 6, 12], index=0, format_func=lambda x: f"{x} Month{'s' if x > 1 else ''}")
             calc_base = 549.00 * selected_months
             calc_gst = calc_base * 0.18
@@ -625,7 +617,6 @@ def render_upgrade_page():
                 
             st.divider()
             if st.button("✅ I have completed the payment", type="primary", use_container_width=True):
-                # Update DB with payment pending AND the number of months requested
                 supabase.table("subscriptions").update({
                     "payment_status": "Pending",
                     "plan_months": selected_months
@@ -671,42 +662,52 @@ def render_admin_panel():
             if not pending: 
                 st.info("No pending payments.")
             for u in pending:
-                # Calculate what they should have paid based on months requested
                 requested_months = u.get('plan_months', 1)
                 expected_total = (549.00 * requested_months) * 1.18
+                display_uname = u['email'].replace("@nexus.app", "")
                 
-                st.write(f"🧾 **{u['email']}**")
+                st.write(f"🧾 **{display_uname}**")
                 st.caption(f"Requested: {requested_months} Months | Expected Payment: ₹{expected_total:.2f}")
                 
-                if st.button(f"✅ Approve & Generate Invoice for {u['email']}", key=f"approve_{u['email']}"):
+                if st.button(f"✅ Approve & Generate Invoice", key=f"approve_{u['email']}"):
                     today_str = time.strftime("%d %b %Y")
                     supabase.table("subscriptions").update({
                         "tier": "Pro", 
                         "payment_status": "Approved", 
                         "invoice_date": today_str
                     }).eq("email", u['email']).execute()
-                    st.success(f"Approved {u['email']}!")
+                    st.success(f"Approved {display_uname}!")
                     time.sleep(1)
                     st.rerun()
         except Exception as e:
             st.error(f"Database error: {e}")
         st.markdown('</div>', unsafe_allow_html=True)
         
+        # NEW: PROVISION CUSTOMER ACCOUNT
         st.markdown('<div class="nexus-card">', unsafe_allow_html=True)
-        st.subheader("Manual User Access")
-        with st.form("admin_update_tier"):
-            target_email = st.text_input("Customer Email Address")
-            new_tier = st.selectbox("Assign New Tier", ["Free", "Plus", "Pro"])
+        st.subheader("Provision Customer Account")
+        st.caption("Create an account for a new customer without logging yourself out.")
+        with st.form("admin_create_user"):
+            new_username = st.text_input("New Customer Username", placeholder="e.g. johndoe")
+            new_password = st.text_input("New Password", type="password")
             
-            if st.form_submit_button("Force Membership Update", type="primary", use_container_width=True):
-                if target_email:
-                    try:
-                        supabase.table("subscriptions").upsert({"email": target_email, "tier": new_tier}).execute()
-                        st.success(f"✅ {target_email} updated to {new_tier}.")
-                    except Exception as e:
-                        st.error(f"Database error: {e}")
+            if st.form_submit_button("Create Account & Provision", type="primary", use_container_width=True):
+                if new_username and new_password:
+                    target_email = f"{new_username.strip()}@nexus.app"
+                    
+                    # Direct REST API call to bypass Streamlit session mutation
+                    api_url = f"{SUPABASE_URL}/auth/v1/signup"
+                    headers = {"apikey": SUPABASE_KEY, "Content-Type": "application/json"}
+                    payload = {"email": target_email, "password": new_password}
+                    
+                    response = requests.post(api_url, headers=headers, json=payload)
+                    
+                    if response.status_code == 200:
+                        st.success(f"✅ Created Account: {new_username}")
+                    else:
+                        st.error(f"Creation failed: {response.text}")
                 else:
-                    st.error("Enter a valid email.")
+                    st.error("Username and Password required.")
         st.markdown('</div>', unsafe_allow_html=True)
                     
     with col2:
@@ -715,7 +716,13 @@ def render_admin_panel():
         try:
             res = supabase.table("subscriptions").select("email, tier, payment_status, invoice_date, plan_months").execute()
             df = pd.DataFrame(res.data)
-            st.dataframe(df, use_container_width=True, height=450)
+            
+            # Clean up emails for display
+            if not df.empty:
+                df['email'] = df['email'].str.replace("@nexus.app", "")
+                df.rename(columns={'email': 'username'}, inplace=True)
+            
+            st.dataframe(df, use_container_width=True, height=650)
         except Exception as e:
             st.error("Could not fetch users.")
         st.markdown('</div>', unsafe_allow_html=True)
@@ -728,11 +735,12 @@ with st.sidebar:
     
     tier_colors = {"Free": "#94A3B8", "Plus": "#06B6D4", "Pro": "#4F46E5"}
     active_color = tier_colors.get(st.session_state.tier, "#94A3B8")
+    display_name = st.session_state.user.email.replace("@nexus.app", "")
     
     st.markdown(f"""
     <div style='background-color:#1E293B; padding:10px 12px; border-radius:8px; margin:14px 0 20px 0; border:1px solid #334155;'>
         <div style='font-size:11px; color:#94A3B8; text-transform:uppercase; font-weight:600;'>Active Workspace</div>
-        <div style='font-weight:600; font-size:13px; color:#F8FAFC; word-break:break-all;'>{st.session_state.user.email}</div>
+        <div style='font-weight:600; font-size:13px; color:#F8FAFC; word-break:break-all;'>{display_name}</div>
         <div style='margin-top:6px;'><span style='background:{active_color}; color:white; font-size:10px; font-weight:700; padding:2px 8px; border-radius:10px;'>{st.session_state.tier.upper()} PLAN</span></div>
     </div>
     """, unsafe_allow_html=True)
@@ -766,5 +774,5 @@ elif st.session_state.nav_page == "⚙️ Relay Settings":
     render_relay_settings()
 elif st.session_state.nav_page == "💎 Upgrade Plan":
     render_upgrade_page()
-elif st.session_state.nav_page == "🛡️️ Admin Panel":
+elif st.session_state.nav_page == "🛡️ Admin Panel":
     render_admin_panel()
