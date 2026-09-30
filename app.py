@@ -177,10 +177,10 @@ if not st.session_state.user:
     
     _, col_auth, _ = st.columns([1, 1.3, 1])
     with col_auth:
-        st.markdown('<div class="nexus-card">', unsafe_allow_html=True)
         tab_login, tab_register = st.tabs(["🔐 Secure Log In", "✨ Create Account"])
         
         with tab_login:
+            st.markdown("<br>", unsafe_allow_html=True)
             login_email = st.text_input("Work Email", key="auth_login_email")
             login_pass = st.text_input("Password", type="password", key="auth_login_pass")
             
@@ -200,7 +200,8 @@ if not st.session_state.user:
                     st.error("Invalid email or password.")
                     
         with tab_register:
-            reg_email = st.text_input("Work Email", key="auth_reg_email")
+            st.markdown("<br>", unsafe_allow_html=True)
+            reg_email = st.text_input("Work Email", key="auth_reg_email", help="Enter a valid email address")
             reg_pass = st.text_input("Choose Password", type="password", key="auth_reg_pass")
             
             if st.button("Register Workspace", type="primary", use_container_width=True):
@@ -209,8 +210,6 @@ if not st.session_state.user:
                     st.success("✅ Account created. Please switch to the login tab.")
                 except Exception as e:
                     st.error(f"Registration failed: {e}")
-                    
-        st.markdown('</div>', unsafe_allow_html=True)
     st.stop()
 
 # ==========================================
