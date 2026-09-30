@@ -90,7 +90,7 @@ SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
 
 if not SUPABASE_URL or not SUPABASE_KEY:
-    st.error("⚠️ Database connection missing. Check Render Environment Variables.")
+    st.error("⚠️ Database connection missing. Check Streamlit Secrets or Environment Variables.")
     st.stop()
 
 @st.cache_resource
@@ -108,12 +108,8 @@ if 'user' not in st.session_state:
     st.session_state.user = None
 if 'nav_page' not in st.session_state:
     st.session_state.nav_page = "📊 Dashboard"
-
-# Engine Toggles
 if 'engine_choice' not in st.session_state:
     st.session_state.engine_choice = "Google SMTP"
-    
-# Credentials
 if 'smtp_email' not in st.session_state:
     st.session_state.smtp_email = ""
 if 'smtp_password' not in st.session_state:
@@ -122,8 +118,6 @@ if 'resend_api_key' not in st.session_state:
     st.session_state.resend_api_key = ""
 if 'resend_sender' not in st.session_state:
     st.session_state.resend_sender = "onboarding@resend.dev"
-
-# Usage & Data
 if 'total_sent' not in st.session_state:
     st.session_state.total_sent = 0
 if 'saved_audience' not in st.session_state:
@@ -136,6 +130,8 @@ if 'payment_status' not in st.session_state:
     st.session_state.payment_status = "Unpaid"
 if 'invoice_date' not in st.session_state:
     st.session_state.invoice_date = None
+if 'plan_months' not in st.session_state:
+    st.session_state.plan_months = 1
 if 'checkout_active' not in st.session_state:
     st.session_state.checkout_active = False
 if 'qr_generated' not in st.session_state:
@@ -155,11 +151,22 @@ def fetch_user_data(email: str):
         if res.data:
             return res.data[0]
         else:
-            new_user = {"email": email, "tier": "Free", "payment_status": "Unpaid", "invoice_date": None}
+            new_user = {
+                "email": email, 
+                "tier": "Free", 
+                "payment_status": "Unpaid", 
+                "invoice_date": None,
+                "plan_months": 1
+            }
             supabase.table("subscriptions").insert(new_user).execute()
             return new_user
     except Exception as e:
-        return {"tier": "Free", "payment_status": "Unpaid", "invoice_date": None}
+        return {
+            "tier": "Free", 
+            "payment_status": "Unpaid", 
+            "invoice_date": None,
+            "plan_months": 1
+        }
 
 # ==========================================
 # 4. AUTHENTICATION PORTAL
@@ -176,16 +183,18 @@ if not st.session_state.user:
         with tab_login:
             login_email = st.text_input("Work Email", key="auth_login_email")
             login_pass = st.text_input("Password", type="password", key="auth_login_pass")
+            
             if st.button("Access Command Center", type="primary", use_container_width=True):
                 try:
                     res = supabase.auth.sign_in_with_password({"email": login_email, "password": login_pass})
                     st.session_state.user = res.user
                     
-                    # Fetch tier and billing data
-                    user_data = fetch_user_data(res.user.email)
-                    st.session_state.tier = user_data.get("tier", "Free")
-                    st.session_state.payment_status = user_data.get("payment_status", "Unpaid")
-                    st.session_state.invoice_date = user_data.get("invoice_date", None)
+                    # Fetch comprehensive user data including billing
+                    u_data = fetch_user_data(res.user.email)
+                    st.session_state.tier = u_data.get("tier", "Free")
+                    st.session_state.payment_status = u_data.get("payment_status", "Unpaid")
+                    st.session_state.invoice_date = u_data.get("invoice_date", None)
+                    st.session_state.plan_months = u_data.get("plan_months", 1)
                     st.rerun()
                 except Exception as e:
                     st.error("Invalid email or password.")
@@ -193,12 +202,14 @@ if not st.session_state.user:
         with tab_register:
             reg_email = st.text_input("Work Email", key="auth_reg_email")
             reg_pass = st.text_input("Choose Password", type="password", key="auth_reg_pass")
+            
             if st.button("Register Workspace", type="primary", use_container_width=True):
                 try:
                     supabase.auth.sign_up({"email": reg_email, "password": reg_pass})
                     st.success("✅ Account created. Please switch to the login tab.")
                 except Exception as e:
                     st.error(f"Registration failed: {e}")
+                    
         st.markdown('</div>', unsafe_allow_html=True)
     st.stop()
 
@@ -249,12 +260,14 @@ def render_dashboard():
     with kpi4:
         tier_colors = {"Free": "#64748B", "Plus": "#06B6D4", "Pro": "#4F46E5"}
         t_color = tier_colors.get(st.session_state.tier, "#0F172A")
+        
         st.markdown(f"""
         <div class="nexus-card">
             <span style='color:#64748B; font-size:13px; font-weight:600;'>Account Status</span>
             <h2 style='margin:8px 0; color:{t_color}; font-size:32px;'>{st.session_state.tier} Tier</h2>
         </div>
         """, unsafe_allow_html=True)
+        
         if st.session_state.tier != "Pro":
             if st.button("Manage Subscription →", key="btn_kpi_upgrade", use_container_width=True):
                 navigate_to("💎 Upgrade Plan")
@@ -538,6 +551,13 @@ def render_upgrade_page():
         st.markdown('<div class="nexus-card">', unsafe_allow_html=True)
         st.subheader("Billing History")
         
+        # Calculate dynamic amounts based on months paid
+        months = st.session_state.plan_months
+        if not months: months = 1
+        base_price = 549.00 * months
+        gst = base_price * 0.18
+        total_price = base_price + gst
+        
         invoice_date = st.session_state.invoice_date or time.strftime("%d %b %Y")
         invoice_html = f"""
         <html><body style="font-family: Arial, sans-serif; color: #333; line-height: 1.6; max-width: 800px; margin: auto; padding: 40px; border: 1px solid #ddd;">
@@ -548,9 +568,9 @@ def render_upgrade_page():
             <p><b>Billed To:</b><br>{st.session_state.user.email}</p>
             <table width="100%" style="margin-top: 30px; border-collapse: collapse;">
                 <tr style="background-color: #f8f8f8;"><th align="left" style="padding: 10px; border-bottom: 2px solid #ddd;">Description</th><th align="right" style="padding: 10px; border-bottom: 2px solid #ddd;">Amount</th></tr>
-                <tr><td style="padding: 10px; border-bottom: 1px solid #eee;">Pro Tier Subscription</td><td align="right" style="padding: 10px; border-bottom: 1px solid #eee;">₹549.00</td></tr>
-                <tr><td style="padding: 10px; border-bottom: 1px solid #eee;">GST (18%)</td><td align="right" style="padding: 10px; border-bottom: 1px solid #eee;">₹98.82</td></tr>
-                <tr><th align="left" style="padding: 10px;">Total Paid</th><th align="right" style="padding: 10px; color: #10B981;">₹647.82</th></tr>
+                <tr><td style="padding: 10px; border-bottom: 1px solid #eee;">Pro Tier Subscription ({months} Months)</td><td align="right" style="padding: 10px; border-bottom: 1px solid #eee;">₹{base_price:.2f}</td></tr>
+                <tr><td style="padding: 10px; border-bottom: 1px solid #eee;">GST (18%)</td><td align="right" style="padding: 10px; border-bottom: 1px solid #eee;">₹{gst:.2f}</td></tr>
+                <tr><th align="left" style="padding: 10px;">Total Paid</th><th align="right" style="padding: 10px; color: #10B981;">₹{total_price:.2f}</th></tr>
             </table><br><br>
             <p style="text-align: center; color: #888; font-size: 12px;">Payment Processed via UPI. Thank you for your business!</p>
         </body></html>
@@ -568,8 +588,9 @@ def render_upgrade_page():
 
     # STATE 2: PENDING APPROVAL
     if st.session_state.payment_status == "Pending":
-        st.info("⏳ Your payment of ₹647.82 is currently under review by our Admin team. Your account will be upgraded and your invoice generated shortly.")
-        st.button("Refresh Status", on_click=lambda: st.rerun())
+        st.info("⏳ Your payment is currently under review by our Admin team. Your account will be upgraded and your invoice generated shortly.")
+        if st.button("Refresh Status"):
+            st.rerun()
         return
 
     # STATE 3: CHECKOUT SCREEN
@@ -578,30 +599,44 @@ def render_upgrade_page():
         with c_center:
             st.markdown('<div class="nexus-card" style="text-align: center;">', unsafe_allow_html=True)
             st.subheader("Secure UPI Checkout")
-            st.markdown("""
-            <table width="100%" style="text-align: left; margin-bottom: 20px;">
-                <tr><td>Pro Plan (Base)</td><td align="right">₹549.00</td></tr>
-                <tr><td>GST (18%)</td><td align="right">₹98.82</td></tr>
-                <tr><th><h3 style='margin:0;'>Total Payable</h3></th><th align="right"><h3 style='margin:0; color:#4F46E5;'>₹647.82</h3></th></tr>
+            
+            # Dynamic Plan Calculator
+            selected_months = st.selectbox("Select Subscription Duration", [1, 3, 6, 12], index=0, format_func=lambda x: f"{x} Month{'s' if x > 1 else ''}")
+            calc_base = 549.00 * selected_months
+            calc_gst = calc_base * 0.18
+            calc_total = calc_base + calc_gst
+            
+            st.markdown(f"""
+            <table width="100%" style="text-align: left; margin-bottom: 20px; margin-top: 20px;">
+                <tr><td>Pro Plan ({selected_months} Months)</td><td align="right">₹{calc_base:.2f}</td></tr>
+                <tr><td>GST (18%)</td><td align="right">₹{calc_gst:.2f}</td></tr>
+                <tr><th><h3 style='margin:0;'>Total Payable</h3></th><th align="right"><h3 style='margin:0; color:#4F46E5;'>₹{calc_total:.2f}</h3></th></tr>
             </table>
             """, unsafe_allow_html=True)
             
             if not st.session_state.qr_generated:
-                with st.spinner("Generating unique transaction QR code..."):
+                with st.spinner("Preparing secure checkout..."):
                     time.sleep(2)
                 st.session_state.qr_generated = True
                 
             try:
-                st.image("qr.png", caption="Scan to Pay ₹647.82", width=250)
+                st.image("qr.png", caption=f"Scan to Pay Exact Amount: ₹{calc_total:.2f}", width=250)
             except:
                 st.error("⚠️ [Admin Note: Ensure 'qr.png' is uploaded to the root folder]")
                 
             st.divider()
             if st.button("✅ I have completed the payment", type="primary", use_container_width=True):
-                supabase.table("subscriptions").update({"payment_status": "Pending"}).eq("email", st.session_state.user.email).execute()
+                # Update DB with payment pending AND the number of months requested
+                supabase.table("subscriptions").update({
+                    "payment_status": "Pending",
+                    "plan_months": selected_months
+                }).eq("email", st.session_state.user.email).execute()
+                
                 st.session_state.payment_status = "Pending"
+                st.session_state.plan_months = selected_months
                 st.session_state.checkout_active = False
                 st.rerun()
+                
             if st.button("Cancel & Go Back"):
                 st.session_state.checkout_active = False
                 st.session_state.qr_generated = False
@@ -637,7 +672,13 @@ def render_admin_panel():
             if not pending: 
                 st.info("No pending payments.")
             for u in pending:
-                st.write(f"🧾 **{u['email']}** (Paid ₹647.82)")
+                # Calculate what they should have paid based on months requested
+                requested_months = u.get('plan_months', 1)
+                expected_total = (549.00 * requested_months) * 1.18
+                
+                st.write(f"🧾 **{u['email']}**")
+                st.caption(f"Requested: {requested_months} Months | Expected Payment: ₹{expected_total:.2f}")
+                
                 if st.button(f"✅ Approve & Generate Invoice for {u['email']}", key=f"approve_{u['email']}"):
                     today_str = time.strftime("%d %b %Y")
                     supabase.table("subscriptions").update({
@@ -673,7 +714,7 @@ def render_admin_panel():
         st.markdown('<div class="nexus-card">', unsafe_allow_html=True)
         st.subheader("Subscription Database")
         try:
-            res = supabase.table("subscriptions").select("email, tier, payment_status, invoice_date").execute()
+            res = supabase.table("subscriptions").select("email, tier, payment_status, invoice_date, plan_months").execute()
             df = pd.DataFrame(res.data)
             st.dataframe(df, use_container_width=True, height=450)
         except Exception as e:
@@ -726,5 +767,5 @@ elif st.session_state.nav_page == "⚙️ Relay Settings":
     render_relay_settings()
 elif st.session_state.nav_page == "💎 Upgrade Plan":
     render_upgrade_page()
-elif st.session_state.nav_page == "🛡️ Admin Panel":
+elif st.session_state.nav_page == "🛡️️ Admin Panel":
     render_admin_panel()
