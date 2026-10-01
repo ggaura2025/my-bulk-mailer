@@ -372,7 +372,7 @@ def render_campaign_launcher():
     if engine == "Google SMTP":
         if not st.session_state.smtp_email or not st.session_state.smtp_password:
             st.warning("⚠️ **SMTP Credentials Missing:** Configure your Gmail relay before dispatching.")
-            if st.button("Configure Settings Now →"): navigate_to("⚙️️ Relay Settings")
+            if st.button("Configure Settings Now →"): navigate_to("⚙️ Relay Settings")
             return
     else:
         if not st.session_state.resend_api_key:
@@ -703,9 +703,9 @@ def render_upgrade_page():
                 <table width="100%" style="font-size: 11px;">
                     <tr>
                         <td align="left">
-                            NexusMail Pro<br>
-                            123 Enterprise Avenue,<br>
-                            Sector 4<br>
+                            Nexuss Tek<br>
+                            Yellappa Chetty Layout, Sivanchetti Gardens,<br>
+                            Bengaluru, Karnataka 560001<br>
                             India
                         </td>
                         <td align="right" valign="bottom">
