@@ -31,9 +31,9 @@ st.markdown("""
         font-family: 'Plus Jakarta Sans', sans-serif !important;
     }
     
-    /* FIX: Kept MainMenu and footer hidden, but removed header hidden so the sidebar toggle stays visible */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
+    header {visibility: hidden;}
     
     .block-container {
         padding-top: 2rem !important;
@@ -139,6 +139,7 @@ if not SUPABASE_URL or not SUPABASE_KEY:
     st.error("⚠️ Database connection missing. Check Streamlit Secrets.")
     st.stop()
 
+# Isolated client prevents cross-tab/cross-user bleeding
 if 'supabase_client' not in st.session_state:
     st.session_state.supabase_client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
@@ -580,14 +581,14 @@ def render_upgrade_page():
         st.markdown('<div class="nexus-card">', unsafe_allow_html=True)
         st.markdown("<h4>Current Billing Cycle</h4>", unsafe_allow_html=True)
         
+        # Exact 549 Base calculation without any GST
         months = st.session_state.plan_months or 1
         total_price = 549.00 * months
         
-        invoice_date = st.session_state.invoice_date or time.strftime("%d %b %Y")
+        invoice_date = st.session_state.invoice_date or time.strftime("%d %B %Y")
         disp_username = st.session_state.user.email.replace("@nexus.app", "")
         
-        receipt_no = int(time.time())
-        customer_no = str(abs(hash(st.session_state.user.email)))[:9]
+        receipt_no = f"INV-{datetime.now().strftime('%Y')}-{str(abs(hash(st.session_state.user.email)))[:5]}"
         
         b_name = st.session_state.billing_name if st.session_state.billing_name else disp_username
         b_address = st.session_state.billing_address.replace('\n', '<br>') if st.session_state.billing_address else "Address Not Provided"
@@ -596,130 +597,124 @@ def render_upgrade_page():
         try:
             inv_dt = datetime.strptime(invoice_date, "%d %b %Y")
             exp_dt = inv_dt + timedelta(days=30 * months)
-            expiry_str = exp_dt.strftime("%d %b %Y")
+            expiry_str = exp_dt.strftime("%d %B %Y")
             st.info(f"🗓️ Your subscription is active until **{expiry_str}**.")
         except: pass
         
+        # Beautiful Commercial PDF Invoice exactly as requested
         invoice_html = f"""
         <html>
         <head>
             <style>
-                @page {{ size: a4; margin: 1.5cm; }}
-                body {{ font-family: Helvetica, Arial, sans-serif; font-size: 11px; color: #000; line-height: 1.4; }}
+                @page {{ size: a4; margin: 2cm; }}
+                body {{ font-family: Helvetica, Arial, sans-serif; font-size: 12px; color: #222; line-height: 1.5; }}
                 table {{ width: 100%; border-collapse: collapse; }}
-                th, td {{ vertical-align: top; padding: 4px 0; }}
-                .small-title {{ font-size: 9px; font-weight: bold; text-transform: uppercase; color: #333; margin-bottom: 2px; }}
+                th, td {{ vertical-align: top; }}
+                .header-title {{ font-size: 26px; font-weight: bold; color: #111; margin-bottom: 25px; text-transform: uppercase; letter-spacing: 1px; }}
+                .section-title {{ font-size: 14px; font-weight: bold; margin-bottom: 8px; color: #111; border-bottom: 1px solid #ccc; padding-bottom: 4px; }}
+                .item-table th {{ text-align: left; border-bottom: 2px solid #333; padding: 10px 5px; font-weight: bold; }}
+                .item-table td {{ padding: 12px 5px; border-bottom: 1px solid #eee; }}
+                .totals-table td {{ padding: 8px 5px; }}
+                .notes {{ margin-top: 40px; font-size: 11px; color: #555; line-height: 1.6; }}
             </style>
         </head>
         <body>
-            <h2 style="font-size: 18px; margin: 0; font-weight: normal;">Receipt</h2>
-            <p style="margin: 0 0 20px 0; font-size: 11px; font-weight: bold;">№ {receipt_no}</p>
-            <hr style="border: 0.5px solid #ddd; margin: 15px 0;">
+            <div class="header-title">COMMERCIAL INVOICE</div>
 
             <table>
                 <tr>
-                    <td width="50%">
-                        <div class="small-title">DATE:</div>
-                        <div style="margin-bottom: 12px;">{invoice_date}</div>
-                        <div class="small-title">CUSTOMER #:</div>
-                        <div style="margin-bottom: 12px;">{customer_no}</div>
-                        <div class="small-title">BILL TO:</div>
-                        <div>{b_name}<br>{b_address}<br>{b_phone}</div>
+                    <td width="55%">
+                        <b style="font-size: 15px; color: #000;">Nexuss Tek</b><br>
+                        Digital Services<br>
+                        Yellappa Chetty Layout, Sivanchetti Gardens<br>
+                        Bengaluru, Karnataka 560001, India<br>
+                        Email: info@nexusemails.com<br>
+                        Phone: +91 94746 65658
                     </td>
-                    <td width="50%" align="right" valign="bottom">
-                        <table style="width:100%">
-                            <tr>
-                                <td align="left" valign="bottom"><span class="small-title">PAYMENT:</span><br>UPI</td>
-                                <td align="right" valign="bottom">INR {total_price:,.2f}</td>
-                            </tr>
-                        </table>
+                    <td width="45%" align="right">
+                        <b>Invoice No.:</b> {receipt_no}<br>
+                        <b>Invoice Date:</b> {invoice_date}<br>
+                        <b>Payment Status:</b> <span style="color: #10B981; font-weight: bold;">PAID</span>
                     </td>
                 </tr>
             </table>
 
-            <hr style="border: 0.5px solid #ddd; margin: 15px 0;">
-
-            <table>
-                <tr><td align="left" style="padding-bottom: 10px;"><b>Previous Balance</b></td><td align="right" style="padding-bottom: 10px;">INR {total_price:,.2f}</td></tr>
-                <tr><td align="left" style="padding-bottom: 10px;"><b>Received Payment</b></td><td align="right" style="padding-bottom: 10px;">(INR {total_price:,.2f})</td></tr>
-                <tr><td align="left"><b>Balance Due (INR)</b></td><td align="right"><b>INR 0.00</b></td></tr>
-            </table>
-
-            <hr style="border: 0.5px solid #ddd; margin: 15px 0;">
-
-            <table>
-                <tr style="border-bottom: 1px solid #ddd;">
-                    <th align="left" style="padding-bottom: 8px;">Term</th>
-                    <th align="left" style="padding-bottom: 8px;">Product</th>
-                    <th align="right" style="padding-bottom: 8px;">Amount</th>
-                </tr>
-                <tr>
-                    <td align="left" style="padding-top: 12px;">{months} mo</td>
-                    <td align="left" style="padding-top: 12px;">NexusMail Pro Subscription<br><span style="color: #666; font-size: 10px;">Workspace Access</span></td>
-                    <td align="right" style="padding-top: 12px;">INR {total_price:,.2f}</td>
-                </tr>
-            </table>
-
-            <br><br><br>
-            <table>
-                <tr>
-                    <td width="50%"></td>
-                    <td width="50%">
-                        <table>
-                            <tr><td align="left" style="padding-bottom: 4px;"><b>Subtotal</b></td><td align="right" style="padding-bottom: 4px;"><b>INR {total_price:,.2f}</b></td></tr>
-                            <tr><td align="left" style="padding-bottom: 4px;">Taxes</td><td align="right" style="padding-bottom: 4px;">INR 0.00</td></tr>
-                            <tr><td align="left" style="padding-bottom: 12px;">Fees</td><td align="right" style="padding-bottom: 12px;">INR 0.00</td></tr>
-                            <tr><td colspan="2"><hr style="border: 0.5px solid #ddd; margin: 0 0 12px 0;"></td></tr>
-                            <tr><td align="left"><b>Total (INR)</b></td><td align="right"><b>INR {total_price:,.2f}</b></td></tr>
-                        </table>
-                    </td>
-                </tr>
-            </table>
-
-            <hr style="border: 0.5px solid #ddd; margin: 20px 0;">
-
-            <div class="small-title" style="margin-bottom: 10px;">REFERENCE</div>
-            <table style="margin-bottom: 20px;">
-                <tr>
-                    <td align="left" width="50%" style="padding-left: 15px;"><b>Taxes</b></td>
-                    <td align="right" width="50%">INR 0.00</td>
-                </tr>
-            </table>
-
-            <table>
-                <tr>
-                    <td align="left">
-                        Nexuss Tek<br>
-                        Yellappa Chetty Layout, Sivanchetti Gardens,<br>
-                        Bengaluru, Karnataka 560001<br>
-                        India
-                    </td>
-                    <td align="right" valign="bottom">
-                        <table style="background-color: #f8f8f8; border-top: 1px solid #ddd; border-bottom: 1px solid #ddd;">
-                            <tr>
-                                <td align="left" style="padding: 6px;">Net</td>
-                                <td align="left" style="padding: 6px;">INR {total_price:,.2f}</td>
-                                <td align="left" style="padding: 6px;">Tax (0.00%)</td>
-                                <td align="right" style="padding: 6px;">INR 0.00</td>
-                            </tr>
-                        </table>
-                    </td>
-                </tr>
-            </table>
             <br><br>
-            <div style="font-size: 11px; text-decoration: underline;">Universal Terms of Service</div>
+
+            <div class="section-title">BILL TO</div>
+            <p style="margin-top: 8px; line-height: 1.6;">
+                <b style="font-size: 14px; color: #000;">{b_name}</b><br>
+                {b_address}<br>
+                Phone: {b_phone}
+            </p>
+
+            <br><br>
+
+            <table class="item-table">
+                <tr>
+                    <th width="60%">Description</th>
+                    <th width="15%" style="text-align: center;">Qty</th>
+                    <th width="25%" style="text-align: right;">Amount</th>
+                </tr>
+                <tr>
+                    <td>Digital Service / Software Subscription<br><span style="font-size: 10px; color: #666;">Workspace Access ({months} Months)</span></td>
+                    <td align="center">1</td>
+                    <td align="right">INR {total_price:,.2f}</td>
+                </tr>
+            </table>
+
+            <br>
+
+            <table>
+                <tr>
+                    <td width="60%"></td>
+                    <td width="40%">
+                        <table class="totals-table">
+                            <tr>
+                                <td align="left"><b>Subtotal:</b></td>
+                                <td align="right">INR {total_price:,.2f}</td>
+                            </tr>
+                            <tr>
+                                <td align="left"><b>GST:</b></td>
+                                <td align="right">Not charged</td>
+                            </tr>
+                            <tr><td colspan="2"><hr style="border: 0.5px solid #ccc; margin: 5px 0;"></td></tr>
+                            <tr>
+                                <td align="left" style="font-size: 15px; color: #000;"><b>Total Paid:</b></td>
+                                <td align="right" style="font-size: 15px; color: #000;"><b>INR {total_price:,.2f}</b></td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+            </table>
+
+            <br><br>
+            <p>
+                <b>Payment Method:</b> UPI / Bank Transfer<br>
+                <b>Transaction Reference:</b> TXN-{receipt_no}
+            </p>
+
+            <div class="notes">
+                <b style="color: #000;">Notes</b><br>
+                Digital service provided as described above.<br>
+                Supplier is not registered under GST. GST has not been charged.<br><br>
+                <br><br>
+                Authorized by:<br>
+                <b style="color: #000; font-size: 13px;">Nexuss Tek</b>
+            </div>
         </body>
         </html>
         """
         
+        # Generate the PDF file
         pdf_buffer = BytesIO()
         pisa.CreatePDF(BytesIO(invoice_html.encode("utf-8")), dest=pdf_buffer)
         pdf_bytes = pdf_buffer.getvalue()
 
         st.download_button(
-            label="📄 Download Official PDF Receipt", 
+            label="📄 Download Official PDF Commercial Invoice", 
             data=pdf_bytes, 
-            file_name=f"NexusMail_Receipt_NM{receipt_no}.pdf", 
+            file_name=f"Commercial_Invoice_{receipt_no}.pdf", 
             mime="application/pdf",
             type="primary"
         )
@@ -750,7 +745,8 @@ def render_upgrade_page():
             st.markdown(f"""
             <div style="background-color: #F8FAFC; border-radius: 12px; padding: 20px; margin: 20px 0;">
                 <table width="100%" style="text-align: left; font-size: 15px;">
-                    <tr><td style="padding-bottom: 12px; border-bottom: 1px solid #E2E8F0;">Pro Plan Base ({selected_months}M)</td><td align="right" style="padding-bottom: 12px; border-bottom: 1px solid #E2E8F0;">₹{calc_total:.2f}</td></tr>
+                    <tr><td style="padding-bottom: 12px; border-bottom: 1px solid #E2E8F0;">Digital Service Subscription ({selected_months}M)</td><td align="right" style="padding-bottom: 12px; border-bottom: 1px solid #E2E8F0;">₹{calc_total:.2f}</td></tr>
+                    <tr><td style="padding-top: 12px; padding-bottom: 12px; border-bottom: 1px solid #E2E8F0;">GST</td><td align="right" style="padding-top: 12px; padding-bottom: 12px; border-bottom: 1px solid #E2E8F0;">Not charged</td></tr>
                     <tr><th style="padding-top: 12px;"><h3 style='margin:0;'>Total</h3></th><th align="right" style="padding-top: 12px;"><h3 style='margin:0; color:#4F46E5;'>₹{calc_total:.2f}</h3></th></tr>
                 </table>
             </div>
@@ -770,10 +766,10 @@ def render_upgrade_page():
         with col_billing:
             st.markdown('<div class="nexus-card">', unsafe_allow_html=True)
             st.markdown("<h3>Billing Information</h3>", unsafe_allow_html=True)
-            st.caption("These details will appear on your official receipt.")
+            st.caption("These details will exactly appear on your commercial invoice.")
             
-            bill_name = st.text_input("Full Name / Company Name", value=st.session_state.billing_name)
-            bill_address = st.text_area("Full Address (Include PIN Code)", value=st.session_state.billing_address)
+            bill_name = st.text_input("Full Name / Business Name", value=st.session_state.billing_name)
+            bill_address = st.text_area("Full Address (Include City, State, PIN)", value=st.session_state.billing_address)
             bill_phone = st.text_input("Phone Number", value=st.session_state.billing_phone)
             
             st.divider()
@@ -811,7 +807,7 @@ def render_upgrade_page():
     with c2:
         st.markdown("<div class='nexus-card' style='border-top: 4px solid #06B6D4;'><h3>Plus Tier ⚡</h3><h2 style='color:#06B6D4;'>₹999/mo</h2><hr><ul><li style='margin-bottom:8px'><b>Unlock</b> Campaigns</li><li>Standard Support</li></ul></div>", unsafe_allow_html=True)
     with c3:
-        st.markdown("<div class='nexus-card' style='border-top: 4px solid #4F46E5; background-color: #F8FAFC;'><h3>Pro Tier 🚀</h3><h2 style='color:#4F46E5;'>₹549/mo</h2><hr><ul><li style='margin-bottom:8px'><b>Unlimited</b> Volume</li><li>Auto-Invoicing</li></ul></div>", unsafe_allow_html=True)
+        st.markdown("<div class='nexus-card' style='border-top: 4px solid #4F46E5; background-color: #F8FAFC;'><h3>Pro Tier 🚀</h3><h2 style='color:#4F46E5;'>₹549/mo</h2><hr><ul><li style='margin-bottom:8px'><b>Unlimited</b> Volume</li><li>Commercial Invoice</li></ul></div>", unsafe_allow_html=True)
         if st.button("💳 Proceed to Checkout", type="primary", use_container_width=True):
             st.session_state.checkout_active = True
             st.rerun()
