@@ -690,7 +690,7 @@ def render_upgrade_page():
 
             <br><br>
             <p style="font-size: 11px;">
-                <b>Payment Method:</b> Credit/Debit Card (•••• •••• •••• 948)
+                <b>Payment Method:</b> UPI
             </p>
 
             <div class="notes">
