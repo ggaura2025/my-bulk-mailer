@@ -690,13 +690,13 @@ def render_upgrade_page():
 
             <br><br>
             <p style="font-size: 11px;">
-                <b>Payment Method:</b> UPI
+                <b>Payment Method:</b> Cash
             </p>
 
             <div class="notes">
                 <b style="color: #000;">Terms & Notes:</b><br>
                 &bull; Digital software services provided as described above.<br>
-                &bull; The supplier is exempt from GST registration under applicable provisions. Accordingly, no GST has been levied on this transaction.<br>
+                &bull; The supplier is not registered under GST. No GST has been charged on this transaction.<br>
                 &bull; This is a computer-generated document and does not require a physical signature.<br><br>
                 <br>
                 Authorized by:<br>
