@@ -580,7 +580,7 @@ def render_upgrade_page():
         st.markdown('<div class="nexus-card">', unsafe_allow_html=True)
         st.markdown("<h4>Current Billing Cycle</h4>", unsafe_allow_html=True)
         
-        # Zero GST Logic
+        # Exact 549 Base calculation without any GST
         months = st.session_state.plan_months or 1
         total_price = 549.00 * months
         
@@ -593,6 +593,7 @@ def render_upgrade_page():
         
         b_name = st.session_state.billing_name if st.session_state.billing_name else disp_username
         b_address = st.session_state.billing_address.replace('\n', '<br>') if st.session_state.billing_address else "Address Not Provided"
+        b_phone = st.session_state.billing_phone if st.session_state.billing_phone else "Phone Not Provided"
         
         try:
             inv_dt = datetime.strptime(invoice_date, "%d %b %Y")
@@ -628,8 +629,7 @@ def render_upgrade_page():
                         Digital Services<br>
                         Yellappa Chetty Layout, Sivanchetti Gardens<br>
                         Bengaluru, Karnataka 560001, India<br>
-                        Email: info@nexusemails.com<br>
-                        Phone: +91 94746 65658
+                        Email: info@nexusemails.com
                     </td>
                     <td width="45%" align="right">
                         <b>Invoice No.:</b> {receipt_no}<br>
@@ -644,7 +644,8 @@ def render_upgrade_page():
             <div class="section-title">BILL TO</div>
             <p style="margin-top: 8px; line-height: 1.6;">
                 <b style="font-size: 14px; color: #000;">{b_name}</b><br>
-                {b_address}
+                {b_address}<br>
+                Phone: {b_phone}
             </p>
 
             <br><br>
@@ -688,15 +689,16 @@ def render_upgrade_page():
             </table>
 
             <br><br>
-            <p>
-                <b>Payment Method:</b> UPI / Bank Transfer / Card
+            <p style="font-size: 11px;">
+                <b>Payment Method:</b> Credit/Debit Card (•••• •••• •••• 948)
             </p>
 
             <div class="notes">
-                <b style="color: #000;">Notes</b><br>
-                Digital service provided as described above.<br>
-                Supplier is not registered under GST. GST has not been charged.<br><br>
-                <br><br>
+                <b style="color: #000;">Terms & Notes:</b><br>
+                &bull; Digital software services provided as described above.<br>
+                &bull; The supplier is exempt from GST registration under applicable provisions. Accordingly, no GST has been levied on this transaction.<br>
+                &bull; This is a computer-generated document and does not require a physical signature.<br><br>
+                <br>
                 Authorized by:<br>
                 <b style="color: #000; font-size: 13px;">Nexuss Tek</b>
             </div>
@@ -768,23 +770,26 @@ def render_upgrade_page():
             
             bill_name = st.text_input("Full Name / Business Name", value=st.session_state.billing_name)
             bill_address = st.text_area("Full Address (Include City, State, PIN)", value=st.session_state.billing_address)
+            bill_phone = st.text_input("Phone Number", value=st.session_state.billing_phone)
             
             st.divider()
             if st.button("✅ Confirm Payment Sent", type="primary", use_container_width=True):
-                if not bill_name or not bill_address:
+                if not bill_name or not bill_address or not bill_phone:
                     st.error("Please fill out all billing details for your invoice.")
                 else:
                     supabase.table("subscriptions").update({
                         "payment_status": "Pending",
                         "plan_months": selected_months,
                         "billing_name": bill_name,
-                        "billing_address": bill_address
+                        "billing_address": bill_address,
+                        "billing_phone": bill_phone
                     }).eq("email", st.session_state.user.email).execute()
                     
                     st.session_state.payment_status = "Pending"
                     st.session_state.plan_months = selected_months
                     st.session_state.billing_name = bill_name
                     st.session_state.billing_address = bill_address
+                    st.session_state.billing_phone = bill_phone
                     st.session_state.checkout_active = False
                     st.rerun()
                 
@@ -831,7 +836,7 @@ def render_admin_panel():
                 st.markdown(f"<div style='padding: 15px; border: 1px solid #E2E8F0; border-radius: 8px; margin-bottom: 10px;'><b>User:</b> {display_uname}<br><span style='color:#64748B; font-size:13px;'>{requested_months} Months | Paid: ₹{expected_total:.2f}</span></div>", unsafe_allow_html=True)
                 
                 if st.button(f"✅ Approve & Issue Invoice", key=f"approve_{u['email']}", type="primary"):
-                    today_str = time.strftime("%d %b %Y")
+                    today_str = time.strftime("%d %B %Y")
                     supabase.table("subscriptions").update({
                         "tier": "Pro", 
                         "payment_status": "Approved", 
@@ -881,7 +886,8 @@ def render_admin_panel():
                             "invoice_date": None,
                             "plan_months": 1,
                             "billing_name": "",
-                            "billing_address": ""
+                            "billing_address": "",
+                            "billing_phone": ""
                         }).eq("email", target).execute()
                         st.success(f"✅ Wiped subscription for {wipe_username}")
                         time.sleep(1)
