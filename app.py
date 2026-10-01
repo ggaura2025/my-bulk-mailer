@@ -130,7 +130,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. DATABASE CONNECTION (SUPABASE)
+# 2. DATABASE CONNECTION (ISOLATED SESSIONS)
 # ==========================================
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
@@ -139,14 +139,14 @@ if not SUPABASE_URL or not SUPABASE_KEY:
     st.error("⚠️ Database connection missing. Check Streamlit Secrets.")
     st.stop()
 
-@st.cache_resource
-def init_connection():
-    return create_client(SUPABASE_URL, SUPABASE_KEY)
+# Fix for session bleeding: Store the client instance directly in the isolated session state
+if 'supabase_client' not in st.session_state:
+    st.session_state.supabase_client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-supabase: Client = init_connection()
+supabase: Client = st.session_state.supabase_client
 
 # ==========================================
-# HELPER FUNCTIONS (Session Recovery)
+# HELPER FUNCTIONS 
 # ==========================================
 def navigate_to(page_name: str):
     st.session_state.nav_page = page_name
@@ -201,7 +201,6 @@ def fetch_user_data(email: str):
 # ==========================================
 ADMIN_EMAIL = "ggaura135@gmail.com"
 
-# --- LOGIN REFRESH RECOVERY ---
 if 'user' not in st.session_state:
     st.session_state.user = None
     try:
@@ -220,7 +219,6 @@ if 'resend_sender' not in st.session_state: st.session_state.resend_sender = "on
 if 'total_sent' not in st.session_state: st.session_state.total_sent = 0
 if 'saved_audience' not in st.session_state: st.session_state.saved_audience = []
 
-# Restore DB Data if user was recovered from refresh
 if st.session_state.user and 'tier' not in st.session_state:
     u_data = fetch_user_data(st.session_state.user.email)
     st.session_state.tier = u_data.get("tier", "Free")
@@ -392,7 +390,7 @@ def render_campaign_launcher():
     with col_target:
         st.markdown('<div class="nexus-card">', unsafe_allow_html=True)
         st.markdown("<h4>2. Target Audience</h4>", unsafe_allow_html=True)
-        src_tab1, src_tab2 = st.tabs(["📁 File Import", "✏️ Direct Entry"])
+        src_tab1, src_tab2 = st.tabs(["📁 File Import", "✏️️ Direct Entry"])
         active_recipients = []
         
         with src_tab1:
@@ -581,7 +579,6 @@ def render_upgrade_page():
         st.markdown('<div class="nexus-card">', unsafe_allow_html=True)
         st.markdown("<h4>Current Billing Cycle</h4>", unsafe_allow_html=True)
         
-        # Zero GST Logic
         months = st.session_state.plan_months or 1
         total_price = 549.00 * months
         
@@ -599,10 +596,10 @@ def render_upgrade_page():
             inv_dt = datetime.strptime(invoice_date, "%d %b %Y")
             exp_dt = inv_dt + timedelta(days=30 * months)
             expiry_str = exp_dt.strftime("%d %b %Y")
-            st.info(f"🗓️ Your subscription is active until **{expiry_str}**.")
+            st.info(f"🗓️️ Your subscription is active until **{expiry_str}**.")
         except: pass
         
-        # Optimized HTML String specifically for PDF rendering
+        # FIX: Replaced ₹ with INR to prevent xhtml2pdf encoding crashes
         invoice_html = f"""
         <html>
         <head>
@@ -633,7 +630,7 @@ def render_upgrade_page():
                         <table style="width:100%">
                             <tr>
                                 <td align="left" valign="bottom"><span class="small-title">PAYMENT:</span><br>UPI</td>
-                                <td align="right" valign="bottom">₹{total_price:,.2f}</td>
+                                <td align="right" valign="bottom">INR {total_price:,.2f}</td>
                             </tr>
                         </table>
                     </td>
@@ -643,9 +640,9 @@ def render_upgrade_page():
             <hr style="border: 0.5px solid #ddd; margin: 15px 0;">
 
             <table>
-                <tr><td align="left" style="padding-bottom: 10px;"><b>Previous Balance</b></td><td align="right" style="padding-bottom: 10px;">₹{total_price:,.2f}</td></tr>
-                <tr><td align="left" style="padding-bottom: 10px;"><b>Received Payment</b></td><td align="right" style="padding-bottom: 10px;">(₹{total_price:,.2f})</td></tr>
-                <tr><td align="left"><b>Balance Due (INR)</b></td><td align="right"><b>₹0.00</b></td></tr>
+                <tr><td align="left" style="padding-bottom: 10px;"><b>Previous Balance</b></td><td align="right" style="padding-bottom: 10px;">INR {total_price:,.2f}</td></tr>
+                <tr><td align="left" style="padding-bottom: 10px;"><b>Received Payment</b></td><td align="right" style="padding-bottom: 10px;">(INR {total_price:,.2f})</td></tr>
+                <tr><td align="left"><b>Balance Due (INR)</b></td><td align="right"><b>INR 0.00</b></td></tr>
             </table>
 
             <hr style="border: 0.5px solid #ddd; margin: 15px 0;">
@@ -659,7 +656,7 @@ def render_upgrade_page():
                 <tr>
                     <td align="left" style="padding-top: 12px;">{months} mo</td>
                     <td align="left" style="padding-top: 12px;">NexusMail Pro Subscription<br><span style="color: #666; font-size: 10px;">Workspace Access</span></td>
-                    <td align="right" style="padding-top: 12px;">₹{total_price:,.2f}</td>
+                    <td align="right" style="padding-top: 12px;">INR {total_price:,.2f}</td>
                 </tr>
             </table>
 
@@ -669,11 +666,11 @@ def render_upgrade_page():
                     <td width="50%"></td>
                     <td width="50%">
                         <table>
-                            <tr><td align="left" style="padding-bottom: 4px;"><b>Subtotal</b></td><td align="right" style="padding-bottom: 4px;"><b>₹{total_price:,.2f}</b></td></tr>
-                            <tr><td align="left" style="padding-bottom: 4px;">Taxes</td><td align="right" style="padding-bottom: 4px;">₹0.00</td></tr>
-                            <tr><td align="left" style="padding-bottom: 12px;">Fees</td><td align="right" style="padding-bottom: 12px;">₹0.00</td></tr>
+                            <tr><td align="left" style="padding-bottom: 4px;"><b>Subtotal</b></td><td align="right" style="padding-bottom: 4px;"><b>INR {total_price:,.2f}</b></td></tr>
+                            <tr><td align="left" style="padding-bottom: 4px;">Taxes</td><td align="right" style="padding-bottom: 4px;">INR 0.00</td></tr>
+                            <tr><td align="left" style="padding-bottom: 12px;">Fees</td><td align="right" style="padding-bottom: 12px;">INR 0.00</td></tr>
                             <tr><td colspan="2"><hr style="border: 0.5px solid #ddd; margin: 0 0 12px 0;"></td></tr>
-                            <tr><td align="left"><b>Total (INR)</b></td><td align="right"><b>₹{total_price:,.2f}</b></td></tr>
+                            <tr><td align="left"><b>Total (INR)</b></td><td align="right"><b>INR {total_price:,.2f}</b></td></tr>
                         </table>
                     </td>
                 </tr>
@@ -685,7 +682,7 @@ def render_upgrade_page():
             <table style="margin-bottom: 20px;">
                 <tr>
                     <td align="left" width="50%" style="padding-left: 15px;"><b>Taxes</b></td>
-                    <td align="right" width="50%">₹0.00</td>
+                    <td align="right" width="50%">INR 0.00</td>
                 </tr>
             </table>
 
@@ -701,9 +698,9 @@ def render_upgrade_page():
                         <table style="background-color: #f8f8f8; border-top: 1px solid #ddd; border-bottom: 1px solid #ddd;">
                             <tr>
                                 <td align="left" style="padding: 6px;">Net</td>
-                                <td align="left" style="padding: 6px;">₹{total_price:,.2f}</td>
+                                <td align="left" style="padding: 6px;">INR {total_price:,.2f}</td>
                                 <td align="left" style="padding: 6px;">Tax (0.00%)</td>
-                                <td align="right" style="padding: 6px;">₹0.00</td>
+                                <td align="right" style="padding: 6px;">INR 0.00</td>
                             </tr>
                         </table>
                     </td>
@@ -715,7 +712,7 @@ def render_upgrade_page():
         </html>
         """
         
-        # Generate the PDF file in memory
+        # Generate the PDF file
         pdf_buffer = BytesIO()
         pisa.CreatePDF(BytesIO(invoice_html.encode("utf-8")), dest=pdf_buffer)
         pdf_bytes = pdf_buffer.getvalue()
@@ -751,6 +748,7 @@ def render_upgrade_page():
             selected_months = st.selectbox("Select Subscription Duration", [1, 3, 6, 12], index=0, format_func=lambda x: f"{x} Month{'s' if x > 1 else ''} Plan")
             calc_total = 549.00 * selected_months
             
+            # Left the ₹ in UI since Streamlit handles it fine
             st.markdown(f"""
             <div style="background-color: #F8FAFC; border-radius: 12px; padding: 20px; margin: 20px 0;">
                 <table width="100%" style="text-align: left; font-size: 15px;">
