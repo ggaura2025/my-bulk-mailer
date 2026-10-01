@@ -139,7 +139,6 @@ if not SUPABASE_URL or not SUPABASE_KEY:
     st.error("⚠️ Database connection missing. Check Streamlit Secrets.")
     st.stop()
 
-# Isolated client prevents cross-tab/cross-user bleeding
 if 'supabase_client' not in st.session_state:
     st.session_state.supabase_client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
@@ -581,18 +580,19 @@ def render_upgrade_page():
         st.markdown('<div class="nexus-card">', unsafe_allow_html=True)
         st.markdown("<h4>Current Billing Cycle</h4>", unsafe_allow_html=True)
         
-        # Exact 549 Base calculation without any GST
+        # Zero GST Logic
         months = st.session_state.plan_months or 1
         total_price = 549.00 * months
         
         invoice_date = st.session_state.invoice_date or time.strftime("%d %B %Y")
         disp_username = st.session_state.user.email.replace("@nexus.app", "")
         
-        receipt_no = f"INV-{datetime.now().strftime('%Y')}-{str(abs(hash(st.session_state.user.email)))[:5]}"
+        # Consistent format: INV-[YEAR]-[5-digit-hash]
+        current_year = datetime.now().strftime('%Y')
+        receipt_no = f"INV-{current_year}-{str(abs(hash(st.session_state.user.email)))[:5]}"
         
         b_name = st.session_state.billing_name if st.session_state.billing_name else disp_username
         b_address = st.session_state.billing_address.replace('\n', '<br>') if st.session_state.billing_address else "Address Not Provided"
-        b_phone = st.session_state.billing_phone if st.session_state.billing_phone else "Phone Not Provided"
         
         try:
             inv_dt = datetime.strptime(invoice_date, "%d %b %Y")
@@ -644,8 +644,7 @@ def render_upgrade_page():
             <div class="section-title">BILL TO</div>
             <p style="margin-top: 8px; line-height: 1.6;">
                 <b style="font-size: 14px; color: #000;">{b_name}</b><br>
-                {b_address}<br>
-                Phone: {b_phone}
+                {b_address}
             </p>
 
             <br><br>
@@ -690,8 +689,7 @@ def render_upgrade_page():
 
             <br><br>
             <p>
-                <b>Payment Method:</b> UPI / Bank Transfer<br>
-                <b>Transaction Reference:</b> TXN-{receipt_no}
+                <b>Payment Method:</b> UPI / Bank Transfer / Card
             </p>
 
             <div class="notes">
@@ -770,26 +768,23 @@ def render_upgrade_page():
             
             bill_name = st.text_input("Full Name / Business Name", value=st.session_state.billing_name)
             bill_address = st.text_area("Full Address (Include City, State, PIN)", value=st.session_state.billing_address)
-            bill_phone = st.text_input("Phone Number", value=st.session_state.billing_phone)
             
             st.divider()
             if st.button("✅ Confirm Payment Sent", type="primary", use_container_width=True):
-                if not bill_name or not bill_address or not bill_phone:
+                if not bill_name or not bill_address:
                     st.error("Please fill out all billing details for your invoice.")
                 else:
                     supabase.table("subscriptions").update({
                         "payment_status": "Pending",
                         "plan_months": selected_months,
                         "billing_name": bill_name,
-                        "billing_address": bill_address,
-                        "billing_phone": bill_phone
+                        "billing_address": bill_address
                     }).eq("email", st.session_state.user.email).execute()
                     
                     st.session_state.payment_status = "Pending"
                     st.session_state.plan_months = selected_months
                     st.session_state.billing_name = bill_name
                     st.session_state.billing_address = bill_address
-                    st.session_state.billing_phone = bill_phone
                     st.session_state.checkout_active = False
                     st.rerun()
                 
@@ -886,8 +881,7 @@ def render_admin_panel():
                             "invoice_date": None,
                             "plan_months": 1,
                             "billing_name": "",
-                            "billing_address": "",
-                            "billing_phone": ""
+                            "billing_address": ""
                         }).eq("email", target).execute()
                         st.success(f"✅ Wiped subscription for {wipe_username}")
                         time.sleep(1)
