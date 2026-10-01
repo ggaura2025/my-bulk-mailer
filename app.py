@@ -10,6 +10,8 @@ import time
 import os
 from datetime import datetime, timedelta
 from supabase import create_client, Client
+from io import BytesIO
+from xhtml2pdf import pisa
 
 # ==========================================
 # 1. PREMIUM ENTERPRISE UI & CSS SYSTEM
@@ -144,7 +146,7 @@ def init_connection():
 supabase: Client = init_connection()
 
 # ==========================================
-# HELPER FUNCTIONS (Moved up for Session Recovery)
+# HELPER FUNCTIONS (Session Recovery)
 # ==========================================
 def navigate_to(page_name: str):
     st.session_state.nav_page = page_name
@@ -155,13 +157,12 @@ def is_valid_email(email: str) -> bool:
     return bool(re.match(r"[^@]+@[^@]+\.[^@]+", email))
 
 def fetch_user_data(email: str):
-    """Fetches user data and automatically processes Subscription Expiry."""
     try:
         res = supabase.table("subscriptions").select("*").eq("email", email).execute()
         if res.data:
             u_data = res.data[0]
             
-            # --- AUTO EXPIRATION LOGIC ---
+            # Auto Expiry Logic
             if u_data.get("tier") in ["Plus", "Pro"] and u_data.get("invoice_date"):
                 try:
                     inv_date = datetime.strptime(u_data["invoice_date"], "%d %b %Y")
@@ -169,7 +170,6 @@ def fetch_user_data(email: str):
                     expiry_date = inv_date + timedelta(days=30 * months_paid)
                     
                     if datetime.now() > expiry_date:
-                        # Auto-Downgrade in Database
                         supabase.table("subscriptions").update({
                             "tier": "Free", 
                             "payment_status": "Expired"
@@ -177,7 +177,7 @@ def fetch_user_data(email: str):
                         u_data["tier"] = "Free"
                         u_data["payment_status"] = "Expired"
                 except Exception:
-                    pass # Fail silently if date parsing has an issue
+                    pass 
                     
             return u_data
         else:
@@ -445,7 +445,7 @@ def render_campaign_launcher():
                                     server.send_message(msg)
                                     dispatched += 1
                                     st.session_state.total_sent += 1
-                                except Exception as send_err: st.write(f"⚠️ Delivery failure for `{to_address}`: {send_err}")
+                                except Exception as send_err: st.write(f"⚠️️ Delivery failure for `{to_address}`: {send_err}")
                                 p_bar.progress((idx + 1) / len(active_recipients))
                                 time.sleep(0.5) 
                             server.quit()
@@ -602,138 +602,131 @@ def render_upgrade_page():
             st.info(f"🗓️ Your subscription is active until **{expiry_str}**.")
         except: pass
         
-        # A4 Print-Ready GoDaddy-Style Invoice (No GST)
+        # Optimized HTML String specifically for PDF rendering
         invoice_html = f"""
-        <!DOCTYPE html>
         <html>
         <head>
-            <meta charset="utf-8">
             <style>
-                @page {{ size: A4; margin: 0; }}
-                body {{ font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background: #f4f7f9; margin: 0; padding: 20px; }}
-                .a4-container {{ width: 210mm; min-height: 297mm; padding: 25mm 20mm; margin: 0 auto; background: #fff; box-sizing: border-box; box-shadow: 0 4px 15px rgba(0,0,0,0.05); color: #000; }}
-                p {{ margin: 0; }}
-                .small-header {{ font-size: 9px; font-weight: bold; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 4px; }}
-                @media print {{
-                    body {{ background: #fff; padding: 0; }}
-                    .a4-container {{ width: 100%; min-height: auto; margin: 0; padding: 10mm; box-shadow: none; border: none; }}
-                }}
+                @page {{ size: a4; margin: 1.5cm; }}
+                body {{ font-family: Helvetica, Arial, sans-serif; font-size: 11px; color: #000; line-height: 1.4; }}
+                table {{ width: 100%; border-collapse: collapse; }}
+                th, td {{ vertical-align: top; padding: 4px 0; }}
+                .small-title {{ font-size: 9px; font-weight: bold; text-transform: uppercase; color: #333; margin-bottom: 2px; }}
             </style>
         </head>
         <body>
-            <div class="a4-container">
-                <h2 style="font-size: 18px; margin: 0 0 5px 0; font-weight: normal;">Receipt</h2>
-                <p style="margin: 0; font-size: 11px; font-weight: bold;">№ {receipt_no}</p>
-                <hr style="border: 0; border-top: 1px solid #ddd; margin: 20px 0;">
+            <h2 style="font-size: 18px; margin: 0; font-weight: normal;">Receipt</h2>
+            <p style="margin: 0 0 20px 0; font-size: 11px; font-weight: bold;">№ {receipt_no}</p>
+            <hr style="border: 0.5px solid #ddd; margin: 15px 0;">
 
-                <table width="100%" style="font-size: 11px; margin-bottom: 20px;">
-                    <tr>
-                        <td width="50%" valign="top">
-                            <p class="small-header">DATE:</p>
-                            <p style="margin: 0 0 15px 0;">{invoice_date}</p>
-                            <p class="small-header">CUSTOMER #:</p>
-                            <p style="margin: 0 0 15px 0;">{customer_no}</p>
-                            <p class="small-header">BILL TO:</p>
-                            <p style="margin: 0; line-height: 1.4;">{b_name}<br>{b_address}<br>{b_phone}</p>
-                        </td>
-                        <td width="50%" valign="bottom" align="right">
-                            <table width="100%" style="font-size: 11px;">
-                                <tr>
-                                    <td align="left" valign="bottom">
-                                        <p class="small-header">PAYMENT:</p>
-                                        UPI
-                                    </td>
-                                    <td align="right" valign="bottom">₹{total_price:,.2f}</td>
-                                </tr>
-                            </table>
-                        </td>
-                    </tr>
-                </table>
+            <table>
+                <tr>
+                    <td width="50%">
+                        <div class="small-title">DATE:</div>
+                        <div style="margin-bottom: 12px;">{invoice_date}</div>
+                        <div class="small-title">CUSTOMER #:</div>
+                        <div style="margin-bottom: 12px;">{customer_no}</div>
+                        <div class="small-title">BILL TO:</div>
+                        <div>{b_name}<br>{b_address}<br>{b_phone}</div>
+                    </td>
+                    <td width="50%" align="right" valign="bottom">
+                        <table style="width:100%">
+                            <tr>
+                                <td align="left" valign="bottom"><span class="small-title">PAYMENT:</span><br>UPI</td>
+                                <td align="right" valign="bottom">₹{total_price:,.2f}</td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+            </table>
 
-                <hr style="border: 0; border-top: 1px solid #ddd; margin: 20px 0;">
+            <hr style="border: 0.5px solid #ddd; margin: 15px 0;">
 
-                <table width="100%" style="font-size: 11px;">
-                    <tr><td align="left" style="padding-bottom: 15px;"><b>Previous Balance</b></td><td align="right" style="padding-bottom: 15px;">₹{total_price:,.2f}</td></tr>
-                    <tr><td align="left" style="padding-bottom: 15px;"><b>Received Payment</b></td><td align="right" style="padding-bottom: 15px;">(₹{total_price:,.2f})</td></tr>
-                    <tr><td align="left"><b>Balance Due (INR)</b></td><td align="right"><b>₹0.00</b></td></tr>
-                </table>
+            <table>
+                <tr><td align="left" style="padding-bottom: 10px;"><b>Previous Balance</b></td><td align="right" style="padding-bottom: 10px;">₹{total_price:,.2f}</td></tr>
+                <tr><td align="left" style="padding-bottom: 10px;"><b>Received Payment</b></td><td align="right" style="padding-bottom: 10px;">(₹{total_price:,.2f})</td></tr>
+                <tr><td align="left"><b>Balance Due (INR)</b></td><td align="right"><b>₹0.00</b></td></tr>
+            </table>
 
-                <hr style="border: 0; border-top: 1px solid #ddd; margin: 20px 0;">
+            <hr style="border: 0.5px solid #ddd; margin: 15px 0;">
 
-                <table width="100%" style="font-size: 11px; border-collapse: collapse;">
-                    <tr style="border-bottom: 1px solid #ddd;">
-                        <th align="left" style="padding-bottom: 10px;">Term</th>
-                        <th align="left" style="padding-bottom: 10px;">Product</th>
-                        <th align="right" style="padding-bottom: 10px;">Amount</th>
-                    </tr>
-                    <tr>
-                        <td align="left" valign="top" style="padding-top: 15px;">{months} mo</td>
-                        <td align="left" valign="top" style="padding-top: 15px;">NexusMail Pro Subscription<br><span style="color: #666; font-size: 10px;">Workspace Access</span></td>
-                        <td align="right" valign="top" style="padding-top: 15px;">₹{total_price:,.2f}</td>
-                    </tr>
-                </table>
+            <table>
+                <tr style="border-bottom: 1px solid #ddd;">
+                    <th align="left" style="padding-bottom: 8px;">Term</th>
+                    <th align="left" style="padding-bottom: 8px;">Product</th>
+                    <th align="right" style="padding-bottom: 8px;">Amount</th>
+                </tr>
+                <tr>
+                    <td align="left" style="padding-top: 12px;">{months} mo</td>
+                    <td align="left" style="padding-top: 12px;">NexusMail Pro Subscription<br><span style="color: #666; font-size: 10px;">Workspace Access</span></td>
+                    <td align="right" style="padding-top: 12px;">₹{total_price:,.2f}</td>
+                </tr>
+            </table>
 
-                <div style="margin-top: 60px;">
-                    <table width="100%" style="font-size: 11px;">
-                        <tr>
-                            <td width="50%"></td>
-                            <td width="50%">
-                                <table width="100%" style="font-size: 11px;">
-                                    <tr><td align="left" style="padding-bottom: 5px;"><b>Subtotal</b></td><td align="right" style="padding-bottom: 5px;"><b>₹{total_price:,.2f}</b></td></tr>
-                                    <tr><td align="left" style="padding-bottom: 5px;">Taxes</td><td align="right" style="padding-bottom: 5px;">₹0.00</td></tr>
-                                    <tr><td align="left" style="padding-bottom: 15px;">Fees</td><td align="right" style="padding-bottom: 15px;">₹0.00</td></tr>
-                                    <tr><td colspan="2"><hr style="border: 0; border-top: 1px solid #ddd; margin: 0 0 15px 0;"></td></tr>
-                                    <tr><td align="left"><b>Total (INR)</b></td><td align="right"><b>₹{total_price:,.2f}</b></td></tr>
-                                </table>
-                            </td>
-                        </tr>
-                    </table>
-                </div>
+            <br><br><br>
+            <table>
+                <tr>
+                    <td width="50%"></td>
+                    <td width="50%">
+                        <table>
+                            <tr><td align="left" style="padding-bottom: 4px;"><b>Subtotal</b></td><td align="right" style="padding-bottom: 4px;"><b>₹{total_price:,.2f}</b></td></tr>
+                            <tr><td align="left" style="padding-bottom: 4px;">Taxes</td><td align="right" style="padding-bottom: 4px;">₹0.00</td></tr>
+                            <tr><td align="left" style="padding-bottom: 12px;">Fees</td><td align="right" style="padding-bottom: 12px;">₹0.00</td></tr>
+                            <tr><td colspan="2"><hr style="border: 0.5px solid #ddd; margin: 0 0 12px 0;"></td></tr>
+                            <tr><td align="left"><b>Total (INR)</b></td><td align="right"><b>₹{total_price:,.2f}</b></td></tr>
+                        </table>
+                    </td>
+                </tr>
+            </table>
 
-                <hr style="border: 0; border-top: 1px solid #ddd; margin: 30px 0;">
+            <hr style="border: 0.5px solid #ddd; margin: 20px 0;">
 
-                <p class="small-header" style="margin-bottom: 15px;">REFERENCE</p>
-                <table width="100%" style="font-size: 11px; margin-bottom: 30px;">
-                    <tr>
-                        <td align="left" width="50%" style="padding-left: 20px;"><b>Taxes</b></td>
-                        <td align="right" width="50%">₹0.00</td>
-                    </tr>
-                </table>
+            <div class="small-title" style="margin-bottom: 10px;">REFERENCE</div>
+            <table style="margin-bottom: 20px;">
+                <tr>
+                    <td align="left" width="50%" style="padding-left: 15px;"><b>Taxes</b></td>
+                    <td align="right" width="50%">₹0.00</td>
+                </tr>
+            </table>
 
-                <table width="100%" style="font-size: 11px;">
-                    <tr>
-                        <td align="left">
-                            Nexuss Tek<br>
-                            Yellappa Chetty Layout, Sivanchetti Gardens,<br>
-                            Bengaluru, Karnataka 560001<br>
-                            India
-                        </td>
-                        <td align="right" valign="bottom">
-                            <table width="100%" style="font-size: 11px; border-collapse: collapse;">
-                                <tr style="background-color: #f8f8f8; border-bottom: 1px solid #ddd; border-top: 1px solid #ddd;">
-                                    <td align="left" style="padding: 5px;">Net</td>
-                                    <td align="left" style="padding: 5px;">₹{total_price:,.2f}</td>
-                                    <td align="left" style="padding: 5px;">Tax (0.00%)</td>
-                                    <td align="right" style="padding: 5px;">₹0.00</td>
-                                </tr>
-                            </table>
-                        </td>
-                    </tr>
-                </table>
-                <br><br><br>
-                <p style="font-size: 11px; text-decoration: underline;">Universal Terms of Service</p>
-            </div>
+            <table>
+                <tr>
+                    <td align="left">
+                        Nexuss Tek<br>
+                        Yellappa Chetty Layout, Sivanchetti Gardens,<br>
+                        Bengaluru, Karnataka 560001<br>
+                        India
+                    </td>
+                    <td align="right" valign="bottom">
+                        <table style="background-color: #f8f8f8; border-top: 1px solid #ddd; border-bottom: 1px solid #ddd;">
+                            <tr>
+                                <td align="left" style="padding: 6px;">Net</td>
+                                <td align="left" style="padding: 6px;">₹{total_price:,.2f}</td>
+                                <td align="left" style="padding: 6px;">Tax (0.00%)</td>
+                                <td align="right" style="padding: 6px;">₹0.00</td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+            </table>
+            <br><br>
+            <div style="font-size: 11px; text-decoration: underline;">Universal Terms of Service</div>
         </body>
         </html>
         """
+        
+        # Generate the PDF file in memory
+        pdf_buffer = BytesIO()
+        pisa.CreatePDF(BytesIO(invoice_html.encode("utf-8")), dest=pdf_buffer)
+        pdf_bytes = pdf_buffer.getvalue()
+
         st.download_button(
-            label="📄 Download Print-Ready Receipt", 
-            data=invoice_html, 
-            file_name=f"NexusMail_Receipt_{invoice_date.replace(' ', '_')}.html", 
-            mime="text/html",
+            label="📄 Download Official PDF Receipt", 
+            data=pdf_bytes, 
+            file_name=f"NexusMail_Receipt_NM{receipt_no}.pdf", 
+            mime="application/pdf",
             type="primary"
         )
-        st.caption("Tip: Open the downloaded file in your browser, press Ctrl+P (or Cmd+P), and select 'Save to PDF' to lock it in A4 format.")
         st.markdown('</div>', unsafe_allow_html=True)
         return
 
