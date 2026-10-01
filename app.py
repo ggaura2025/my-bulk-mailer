@@ -144,33 +144,8 @@ def init_connection():
 supabase: Client = init_connection()
 
 # ==========================================
-# 3. SESSION STATE INITIALIZATION
+# HELPER FUNCTIONS (Moved up for Session Recovery)
 # ==========================================
-ADMIN_EMAIL = "ggaura135@gmail.com"
-
-if 'user' not in st.session_state: st.session_state.user = None
-if 'nav_page' not in st.session_state: st.session_state.nav_page = "📊 Dashboard"
-if 'engine_choice' not in st.session_state: st.session_state.engine_choice = "Google SMTP"
-if 'smtp_email' not in st.session_state: st.session_state.smtp_email = ""
-if 'smtp_password' not in st.session_state: st.session_state.smtp_password = ""
-if 'resend_api_key' not in st.session_state: st.session_state.resend_api_key = ""
-if 'resend_sender' not in st.session_state: st.session_state.resend_sender = "onboarding@resend.dev"
-if 'total_sent' not in st.session_state: st.session_state.total_sent = 0
-if 'saved_audience' not in st.session_state: st.session_state.saved_audience = []
-if 'tier' not in st.session_state: st.session_state.tier = "Free"
-
-# Billing Data
-if 'payment_status' not in st.session_state: st.session_state.payment_status = "Unpaid"
-if 'invoice_date' not in st.session_state: st.session_state.invoice_date = None
-if 'plan_months' not in st.session_state: st.session_state.plan_months = 1
-if 'checkout_active' not in st.session_state: st.session_state.checkout_active = False
-if 'qr_generated' not in st.session_state: st.session_state.qr_generated = False
-
-# Billing Profile Details
-if 'billing_name' not in st.session_state: st.session_state.billing_name = ""
-if 'billing_address' not in st.session_state: st.session_state.billing_address = ""
-if 'billing_phone' not in st.session_state: st.session_state.billing_phone = ""
-
 def navigate_to(page_name: str):
     st.session_state.nav_page = page_name
     st.session_state.checkout_active = False
@@ -222,6 +197,52 @@ def fetch_user_data(email: str):
         return {"tier": "Free", "payment_status": "Unpaid", "invoice_date": None, "plan_months": 1}
 
 # ==========================================
+# 3. SESSION STATE INITIALIZATION
+# ==========================================
+ADMIN_EMAIL = "ggaura135@gmail.com"
+
+# --- LOGIN REFRESH RECOVERY ---
+if 'user' not in st.session_state:
+    st.session_state.user = None
+    try:
+        session = supabase.auth.get_session()
+        if session:
+            st.session_state.user = session.user
+    except:
+        pass
+
+if 'nav_page' not in st.session_state: st.session_state.nav_page = "📊 Dashboard"
+if 'engine_choice' not in st.session_state: st.session_state.engine_choice = "Google SMTP"
+if 'smtp_email' not in st.session_state: st.session_state.smtp_email = ""
+if 'smtp_password' not in st.session_state: st.session_state.smtp_password = ""
+if 'resend_api_key' not in st.session_state: st.session_state.resend_api_key = ""
+if 'resend_sender' not in st.session_state: st.session_state.resend_sender = "onboarding@resend.dev"
+if 'total_sent' not in st.session_state: st.session_state.total_sent = 0
+if 'saved_audience' not in st.session_state: st.session_state.saved_audience = []
+
+# Restore DB Data if user was recovered from refresh
+if st.session_state.user and 'tier' not in st.session_state:
+    u_data = fetch_user_data(st.session_state.user.email)
+    st.session_state.tier = u_data.get("tier", "Free")
+    st.session_state.payment_status = u_data.get("payment_status", "Unpaid")
+    st.session_state.invoice_date = u_data.get("invoice_date", None)
+    st.session_state.plan_months = u_data.get("plan_months", 1)
+    st.session_state.billing_name = u_data.get("billing_name", "")
+    st.session_state.billing_address = u_data.get("billing_address", "")
+    st.session_state.billing_phone = u_data.get("billing_phone", "")
+elif not st.session_state.user:
+    if 'tier' not in st.session_state: st.session_state.tier = "Free"
+    if 'payment_status' not in st.session_state: st.session_state.payment_status = "Unpaid"
+    if 'invoice_date' not in st.session_state: st.session_state.invoice_date = None
+    if 'plan_months' not in st.session_state: st.session_state.plan_months = 1
+    if 'billing_name' not in st.session_state: st.session_state.billing_name = ""
+    if 'billing_address' not in st.session_state: st.session_state.billing_address = ""
+    if 'billing_phone' not in st.session_state: st.session_state.billing_phone = ""
+
+if 'checkout_active' not in st.session_state: st.session_state.checkout_active = False
+if 'qr_generated' not in st.session_state: st.session_state.qr_generated = False
+
+# ==========================================
 # 4. AUTHENTICATION PORTAL (CLIENT ONLY)
 # ==========================================
 if not st.session_state.user:
@@ -242,14 +263,12 @@ if not st.session_state.user:
                 st.error("Please enter both Username and Password.")
             else:
                 try:
-                    # Append proxy domain if not an email (Allows Admin to still use their real email)
                     raw_user = login_username.strip()
                     auth_email = raw_user if "@" in raw_user else f"{raw_user}@nexus.app"
                     
                     res = supabase.auth.sign_in_with_password({"email": auth_email, "password": login_pass})
                     st.session_state.user = res.user
                     
-                    # Fetch data & trigger auto-expiry check
                     u_data = fetch_user_data(res.user.email)
                     st.session_state.tier = u_data.get("tier", "Free")
                     st.session_state.payment_status = u_data.get("payment_status", "Unpaid")
@@ -353,7 +372,7 @@ def render_campaign_launcher():
     if engine == "Google SMTP":
         if not st.session_state.smtp_email or not st.session_state.smtp_password:
             st.warning("⚠️ **SMTP Credentials Missing:** Configure your Gmail relay before dispatching.")
-            if st.button("Configure Settings Now →"): navigate_to("⚙️ Relay Settings")
+            if st.button("Configure Settings Now →"): navigate_to("⚙️️ Relay Settings")
             return
     else:
         if not st.session_state.resend_api_key:
@@ -426,7 +445,7 @@ def render_campaign_launcher():
                                     server.send_message(msg)
                                     dispatched += 1
                                     st.session_state.total_sent += 1
-                                except Exception as send_err: st.write(f"⚠️️ Delivery failure for `{to_address}`: {send_err}")
+                                except Exception as send_err: st.write(f"⚠️ Delivery failure for `{to_address}`: {send_err}")
                                 p_bar.progress((idx + 1) / len(active_recipients))
                                 time.sleep(0.5) 
                             server.quit()
@@ -708,7 +727,7 @@ def render_upgrade_page():
         </html>
         """
         st.download_button(
-            label="📄 Download A4 Print-Ready Receipt", 
+            label="📄 Download Print-Ready Receipt", 
             data=invoice_html, 
             file_name=f"NexusMail_Receipt_{invoice_date.replace(' ', '_')}.html", 
             mime="text/html",
