@@ -31,9 +31,9 @@ st.markdown("""
         font-family: 'Plus Jakarta Sans', sans-serif !important;
     }
     
+    /* FIX: Kept MainMenu and footer hidden, but removed header hidden so the sidebar toggle stays visible */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
-    header {visibility: hidden;}
     
     .block-container {
         padding-top: 2rem !important;
@@ -139,7 +139,6 @@ if not SUPABASE_URL or not SUPABASE_KEY:
     st.error("⚠️ Database connection missing. Check Streamlit Secrets.")
     st.stop()
 
-# Fix for session bleeding: Store the client instance directly in the isolated session state
 if 'supabase_client' not in st.session_state:
     st.session_state.supabase_client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
@@ -201,6 +200,7 @@ def fetch_user_data(email: str):
 # ==========================================
 ADMIN_EMAIL = "ggaura135@gmail.com"
 
+# --- LOGIN REFRESH RECOVERY ---
 if 'user' not in st.session_state:
     st.session_state.user = None
     try:
@@ -219,6 +219,7 @@ if 'resend_sender' not in st.session_state: st.session_state.resend_sender = "on
 if 'total_sent' not in st.session_state: st.session_state.total_sent = 0
 if 'saved_audience' not in st.session_state: st.session_state.saved_audience = []
 
+# Restore DB Data if user was recovered from refresh
 if st.session_state.user and 'tier' not in st.session_state:
     u_data = fetch_user_data(st.session_state.user.email)
     st.session_state.tier = u_data.get("tier", "Free")
@@ -390,7 +391,7 @@ def render_campaign_launcher():
     with col_target:
         st.markdown('<div class="nexus-card">', unsafe_allow_html=True)
         st.markdown("<h4>2. Target Audience</h4>", unsafe_allow_html=True)
-        src_tab1, src_tab2 = st.tabs(["📁 File Import", "✏️️ Direct Entry"])
+        src_tab1, src_tab2 = st.tabs(["📁 File Import", "✏️ Direct Entry"])
         active_recipients = []
         
         with src_tab1:
@@ -443,7 +444,7 @@ def render_campaign_launcher():
                                     server.send_message(msg)
                                     dispatched += 1
                                     st.session_state.total_sent += 1
-                                except Exception as send_err: st.write(f"⚠️️ Delivery failure for `{to_address}`: {send_err}")
+                                except Exception as send_err: st.write(f"⚠️ Delivery failure for `{to_address}`: {send_err}")
                                 p_bar.progress((idx + 1) / len(active_recipients))
                                 time.sleep(0.5) 
                             server.quit()
@@ -596,10 +597,9 @@ def render_upgrade_page():
             inv_dt = datetime.strptime(invoice_date, "%d %b %Y")
             exp_dt = inv_dt + timedelta(days=30 * months)
             expiry_str = exp_dt.strftime("%d %b %Y")
-            st.info(f"🗓️️ Your subscription is active until **{expiry_str}**.")
+            st.info(f"🗓️ Your subscription is active until **{expiry_str}**.")
         except: pass
         
-        # FIX: Replaced ₹ with INR to prevent xhtml2pdf encoding crashes
         invoice_html = f"""
         <html>
         <head>
@@ -712,7 +712,6 @@ def render_upgrade_page():
         </html>
         """
         
-        # Generate the PDF file
         pdf_buffer = BytesIO()
         pisa.CreatePDF(BytesIO(invoice_html.encode("utf-8")), dest=pdf_buffer)
         pdf_bytes = pdf_buffer.getvalue()
@@ -748,7 +747,6 @@ def render_upgrade_page():
             selected_months = st.selectbox("Select Subscription Duration", [1, 3, 6, 12], index=0, format_func=lambda x: f"{x} Month{'s' if x > 1 else ''} Plan")
             calc_total = 549.00 * selected_months
             
-            # Left the ₹ in UI since Streamlit handles it fine
             st.markdown(f"""
             <div style="background-color: #F8FAFC; border-radius: 12px; padding: 20px; margin: 20px 0;">
                 <table width="100%" style="text-align: left; font-size: 15px;">
