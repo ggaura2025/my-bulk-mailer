@@ -242,12 +242,14 @@ if not st.session_state.user:
                 st.error("Please enter both Username and Password.")
             else:
                 try:
+                    # Append proxy domain if not an email (Allows Admin to still use their real email)
                     raw_user = login_username.strip()
                     auth_email = raw_user if "@" in raw_user else f"{raw_user}@nexus.app"
                     
                     res = supabase.auth.sign_in_with_password({"email": auth_email, "password": login_pass})
                     st.session_state.user = res.user
                     
+                    # Fetch data & trigger auto-expiry check
                     u_data = fetch_user_data(res.user.email)
                     st.session_state.tier = u_data.get("tier", "Free")
                     st.session_state.payment_status = u_data.get("payment_status", "Unpaid")
@@ -424,7 +426,7 @@ def render_campaign_launcher():
                                     server.send_message(msg)
                                     dispatched += 1
                                     st.session_state.total_sent += 1
-                                except Exception as send_err: st.write(f"⚠️ Delivery failure for `{to_address}`: {send_err}")
+                                except Exception as send_err: st.write(f"⚠️️ Delivery failure for `{to_address}`: {send_err}")
                                 p_bar.progress((idx + 1) / len(active_recipients))
                                 time.sleep(0.5) 
                             server.quit()
@@ -560,10 +562,9 @@ def render_upgrade_page():
         st.markdown('<div class="nexus-card">', unsafe_allow_html=True)
         st.markdown("<h4>Current Billing Cycle</h4>", unsafe_allow_html=True)
         
+        # Zero GST Logic
         months = st.session_state.plan_months or 1
-        base_price = 549.00 * months
-        gst = base_price * 0.18
-        total_price = base_price + gst
+        total_price = 549.00 * months
         
         invoice_date = st.session_state.invoice_date or time.strftime("%d %b %Y")
         disp_username = st.session_state.user.email.replace("@nexus.app", "")
@@ -582,7 +583,7 @@ def render_upgrade_page():
             st.info(f"🗓️ Your subscription is active until **{expiry_str}**.")
         except: pass
         
-        # A4 Print-Ready Professional Invoice
+        # A4 Print-Ready GoDaddy-Style Invoice (No GST)
         invoice_html = f"""
         <!DOCTYPE html>
         <html>
@@ -591,10 +592,9 @@ def render_upgrade_page():
             <style>
                 @page {{ size: A4; margin: 0; }}
                 body {{ font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background: #f4f7f9; margin: 0; padding: 20px; }}
-                .a4-container {{ width: 210mm; min-height: 297mm; padding: 25mm 20mm; margin: 0 auto; background: #fff; box-sizing: border-box; box-shadow: 0 4px 15px rgba(0,0,0,0.05); color: #111; }}
+                .a4-container {{ width: 210mm; min-height: 297mm; padding: 25mm 20mm; margin: 0 auto; background: #fff; box-sizing: border-box; box-shadow: 0 4px 15px rgba(0,0,0,0.05); color: #000; }}
                 p {{ margin: 0; }}
-                .small-header {{ font-size: 10px; font-weight: bold; letter-spacing: 1px; color: #555; margin-bottom: 5px; text-transform: uppercase; }}
-                .invoice-table th, .invoice-table td {{ padding: 12px 10px; border-bottom: 1px solid #eee; }}
+                .small-header {{ font-size: 9px; font-weight: bold; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 4px; }}
                 @media print {{
                     body {{ background: #fff; padding: 0; }}
                     .a4-container {{ width: 100%; min-height: auto; margin: 0; padding: 10mm; box-shadow: none; border: none; }}
@@ -603,106 +603,114 @@ def render_upgrade_page():
         </head>
         <body>
             <div class="a4-container">
-                <table width="100%" style="margin-bottom: 30px;">
-                    <tr>
-                        <td>
-                            <h1 style="color: #4F46E5; margin:0; font-size: 26px;">NexusMail Pro</h1>
-                            <p style="color:#888; font-size: 14px;">TAX RECEIPT</p>
-                        </td>
-                        <td align="right" style="font-size: 13px; line-height: 1.6;">
-                            <b>Date:</b> {invoice_date}<br>
-                            <b>Receipt №:</b> NM-{receipt_no}
-                        </td>
-                    </tr>
-                </table>
-                
-                <hr style="border:0; border-top: 1px solid #E2E8F0; margin: 30px 0;">
+                <h2 style="font-size: 18px; margin: 0 0 5px 0; font-weight: normal;">Receipt</h2>
+                <p style="margin: 0; font-size: 11px; font-weight: bold;">№ {receipt_no}</p>
+                <hr style="border: 0; border-top: 1px solid #ddd; margin: 20px 0;">
 
-                <table width="100%" style="font-size: 13px; margin-bottom: 30px;">
+                <table width="100%" style="font-size: 11px; margin-bottom: 20px;">
                     <tr>
                         <td width="50%" valign="top">
+                            <p class="small-header">DATE:</p>
+                            <p style="margin: 0 0 15px 0;">{invoice_date}</p>
                             <p class="small-header">CUSTOMER #:</p>
-                            <p style="margin-bottom: 15px;">{customer_no}</p>
+                            <p style="margin: 0 0 15px 0;">{customer_no}</p>
                             <p class="small-header">BILL TO:</p>
-                            <p style="line-height: 1.5; font-size: 14px;"><b>{b_name}</b><br>{b_address}<br>{b_phone}</p>
+                            <p style="margin: 0; line-height: 1.4;">{b_name}<br>{b_address}<br>{b_phone}</p>
                         </td>
                         <td width="50%" valign="bottom" align="right">
-                            <table width="100%" style="font-size: 13px;">
+                            <table width="100%" style="font-size: 11px;">
                                 <tr>
                                     <td align="left" valign="bottom">
-                                        <p class="small-header">PAYMENT METHOD:</p>
-                                        <p style="font-size: 14px;">UPI Checkout</p>
+                                        <p class="small-header">PAYMENT:</p>
+                                        UPI
                                     </td>
-                                    <td align="right" valign="bottom" style="font-size: 16px;"><b>₹{total_price:,.2f}</b></td>
+                                    <td align="right" valign="bottom">₹{total_price:,.2f}</td>
                                 </tr>
                             </table>
                         </td>
                     </tr>
                 </table>
 
-                <hr style="border:0; border-top: 1px solid #E2E8F0; margin: 30px 0;">
+                <hr style="border: 0; border-top: 1px solid #ddd; margin: 20px 0;">
 
-                <table width="100%" style="font-size: 13px; margin-bottom: 30px;">
+                <table width="100%" style="font-size: 11px;">
                     <tr><td align="left" style="padding-bottom: 15px;"><b>Previous Balance</b></td><td align="right" style="padding-bottom: 15px;">₹{total_price:,.2f}</td></tr>
                     <tr><td align="left" style="padding-bottom: 15px;"><b>Received Payment</b></td><td align="right" style="padding-bottom: 15px;">(₹{total_price:,.2f})</td></tr>
-                    <tr><td align="left" style="font-size: 14px;"><b>Balance Due (INR)</b></td><td align="right" style="font-size: 14px;"><b>₹0.00</b></td></tr>
+                    <tr><td align="left"><b>Balance Due (INR)</b></td><td align="right"><b>₹0.00</b></td></tr>
                 </table>
 
-                <hr style="border:0; border-top: 1px solid #E2E8F0; margin: 30px 0;">
+                <hr style="border: 0; border-top: 1px solid #ddd; margin: 20px 0;">
 
-                <table class="invoice-table" width="100%" style="font-size: 13px; border-collapse: collapse; margin-bottom: 40px;">
-                    <tr style="background-color: #F8FAFC;">
-                        <th align="left" style="border-top: 1px solid #eee;">Term</th>
-                        <th align="left" style="border-top: 1px solid #eee;">Product Description</th>
-                        <th align="right" style="border-top: 1px solid #eee;">Amount</th>
+                <table width="100%" style="font-size: 11px; border-collapse: collapse;">
+                    <tr style="border-bottom: 1px solid #ddd;">
+                        <th align="left" style="padding-bottom: 10px;">Term</th>
+                        <th align="left" style="padding-bottom: 10px;">Product</th>
+                        <th align="right" style="padding-bottom: 10px;">Amount</th>
                     </tr>
                     <tr>
-                        <td align="left">{months} Month(s)</td>
-                        <td align="left">NexusMail Pro Subscription<br><span style="color: #64748B; font-size: 12px;">Workspace Engine Upgrade</span></td>
-                        <td align="right">₹{base_price:,.2f}</td>
+                        <td align="left" valign="top" style="padding-top: 15px;">{months} mo</td>
+                        <td align="left" valign="top" style="padding-top: 15px;">NexusMail Pro Subscription<br><span style="color: #666; font-size: 10px;">Workspace Access</span></td>
+                        <td align="right" valign="top" style="padding-top: 15px;">₹{total_price:,.2f}</td>
                     </tr>
                 </table>
 
-                <table width="100%" style="font-size: 13px; margin-bottom: 50px;">
+                <div style="margin-top: 60px;">
+                    <table width="100%" style="font-size: 11px;">
+                        <tr>
+                            <td width="50%"></td>
+                            <td width="50%">
+                                <table width="100%" style="font-size: 11px;">
+                                    <tr><td align="left" style="padding-bottom: 5px;"><b>Subtotal</b></td><td align="right" style="padding-bottom: 5px;"><b>₹{total_price:,.2f}</b></td></tr>
+                                    <tr><td align="left" style="padding-bottom: 5px;">Taxes</td><td align="right" style="padding-bottom: 5px;">₹0.00</td></tr>
+                                    <tr><td align="left" style="padding-bottom: 15px;">Fees</td><td align="right" style="padding-bottom: 15px;">₹0.00</td></tr>
+                                    <tr><td colspan="2"><hr style="border: 0; border-top: 1px solid #ddd; margin: 0 0 15px 0;"></td></tr>
+                                    <tr><td align="left"><b>Total (INR)</b></td><td align="right"><b>₹{total_price:,.2f}</b></td></tr>
+                                </table>
+                            </td>
+                        </tr>
+                    </table>
+                </div>
+
+                <hr style="border: 0; border-top: 1px solid #ddd; margin: 30px 0;">
+
+                <p class="small-header" style="margin-bottom: 15px;">REFERENCE</p>
+                <table width="100%" style="font-size: 11px; margin-bottom: 30px;">
                     <tr>
-                        <td width="50%"></td>
-                        <td width="50%">
-                            <table width="100%">
-                                <tr><td align="left" style="padding-bottom: 8px;"><b>Subtotal</b></td><td align="right" style="padding-bottom: 8px;"><b>₹{base_price:,.2f}</b></td></tr>
-                                <tr><td align="left" style="padding-bottom: 8px;">Taxes (18% IGST)</td><td align="right" style="padding-bottom: 8px;">₹{gst:,.2f}</td></tr>
-                                <tr><td align="left" style="padding-bottom: 15px;">Platform Fees</td><td align="right" style="padding-bottom: 15px;">₹0.00</td></tr>
-                                <tr><td colspan="2"><hr style="border:0; border-top: 1px solid #E2E8F0; margin: 0 0 15px 0;"></td></tr>
-                                <tr><td align="left" style="font-size: 16px;"><b>Total (INR)</b></td><td align="right" style="font-size: 16px; color: #10B981;"><b>₹{total_price:,.2f}</b></td></tr>
+                        <td align="left" width="50%" style="padding-left: 20px;"><b>Taxes</b></td>
+                        <td align="right" width="50%">₹0.00</td>
+                    </tr>
+                </table>
+
+                <table width="100%" style="font-size: 11px;">
+                    <tr>
+                        <td align="left">
+                            NexusMail Pro<br>
+                            123 Enterprise Avenue,<br>
+                            Sector 4<br>
+                            India
+                        </td>
+                        <td align="right" valign="bottom">
+                            <table width="100%" style="font-size: 11px; border-collapse: collapse;">
+                                <tr style="background-color: #f8f8f8; border-bottom: 1px solid #ddd; border-top: 1px solid #ddd;">
+                                    <td align="left" style="padding: 5px;">Net</td>
+                                    <td align="left" style="padding: 5px;">₹{total_price:,.2f}</td>
+                                    <td align="left" style="padding: 5px;">Tax (0.00%)</td>
+                                    <td align="right" style="padding: 5px;">₹0.00</td>
+                                </tr>
                             </table>
                         </td>
                     </tr>
                 </table>
-
-                <hr style="border:0; border-top: 1px solid #E2E8F0; margin: 30px 0;">
-
-                <table width="100%" style="font-size: 11px; color: #64748B;">
-                    <tr>
-                        <td align="left">
-                            <b>NexusMail Pro Technologies</b><br>
-                            123 Enterprise Avenue,<br>
-                            Tech Park, Sector 4<br>
-                            India<br>
-                            GSTIN: 9917IND29016OS6
-                        </td>
-                        <td align="right" valign="bottom">
-                            <p>Universal Terms of Service Apply.</p>
-                            <p>Generated automatically on {invoice_date}.</p>
-                        </td>
-                    </tr>
-                </table>
+                <br><br><br>
+                <p style="font-size: 11px; text-decoration: underline;">Universal Terms of Service</p>
             </div>
         </body>
         </html>
         """
         st.download_button(
-            label="📄 Download A4 Print-Ready Invoice", 
+            label="📄 Download A4 Print-Ready Receipt", 
             data=invoice_html, 
-            file_name=f"NexusMail_Receipt_NM{receipt_no}.html", 
+            file_name=f"NexusMail_Receipt_{invoice_date.replace(' ', '_')}.html", 
             mime="text/html",
             type="primary"
         )
@@ -729,15 +737,12 @@ def render_upgrade_page():
             st.markdown("<h3>Secure Checkout Portal</h3>", unsafe_allow_html=True)
             
             selected_months = st.selectbox("Select Subscription Duration", [1, 3, 6, 12], index=0, format_func=lambda x: f"{x} Month{'s' if x > 1 else ''} Plan")
-            calc_base = 549.00 * selected_months
-            calc_gst = calc_base * 0.18
-            calc_total = calc_base + calc_gst
+            calc_total = 549.00 * selected_months
             
             st.markdown(f"""
             <div style="background-color: #F8FAFC; border-radius: 12px; padding: 20px; margin: 20px 0;">
                 <table width="100%" style="text-align: left; font-size: 15px;">
-                    <tr><td style="padding-bottom: 8px;">Pro Plan Base ({selected_months}M)</td><td align="right" style="padding-bottom: 8px;">₹{calc_base:.2f}</td></tr>
-                    <tr><td style="padding-bottom: 12px; border-bottom: 1px solid #E2E8F0;">Tax (18% GST)</td><td align="right" style="padding-bottom: 12px; border-bottom: 1px solid #E2E8F0;">₹{calc_gst:.2f}</td></tr>
+                    <tr><td style="padding-bottom: 12px; border-bottom: 1px solid #E2E8F0;">Pro Plan Base ({selected_months}M)</td><td align="right" style="padding-bottom: 12px; border-bottom: 1px solid #E2E8F0;">₹{calc_total:.2f}</td></tr>
                     <tr><th style="padding-top: 12px;"><h3 style='margin:0;'>Total</h3></th><th align="right" style="padding-top: 12px;"><h3 style='margin:0; color:#4F46E5;'>₹{calc_total:.2f}</h3></th></tr>
                 </table>
             </div>
@@ -751,13 +756,13 @@ def render_upgrade_page():
             try:
                 st.image("qr.png", caption=f"Scan & Pay Exact Amount: ₹{calc_total:.2f}", width=250)
             except:
-                st.error("⚠ [Admin Error: 'qr.png' missing from repository]")
+                st.error("⚠️ [Admin Error: 'qr.png' missing from repository]")
             st.markdown('</div>', unsafe_allow_html=True)
             
         with col_billing:
             st.markdown('<div class="nexus-card">', unsafe_allow_html=True)
             st.markdown("<h3>Billing Information</h3>", unsafe_allow_html=True)
-            st.caption("These details will appear on your official tax receipt.")
+            st.caption("These details will appear on your official receipt.")
             
             bill_name = st.text_input("Full Name / Company Name", value=st.session_state.billing_name)
             bill_address = st.text_area("Full Address (Include PIN Code)", value=st.session_state.billing_address)
@@ -798,7 +803,7 @@ def render_upgrade_page():
     with c2:
         st.markdown("<div class='nexus-card' style='border-top: 4px solid #06B6D4;'><h3>Plus Tier ⚡</h3><h2 style='color:#06B6D4;'>₹999/mo</h2><hr><ul><li style='margin-bottom:8px'><b>Unlock</b> Campaigns</li><li>Standard Support</li></ul></div>", unsafe_allow_html=True)
     with c3:
-        st.markdown("<div class='nexus-card' style='border-top: 4px solid #4F46E5; background-color: #F8FAFC;'><h3>Pro Tier 🚀</h3><h2 style='color:#4F46E5;'>₹549 <span style='font-size:14px; color:#888;'>+ GST</span></h2><hr><ul><li style='margin-bottom:8px'><b>Unlimited</b> Volume</li><li>Auto-Invoicing</li></ul></div>", unsafe_allow_html=True)
+        st.markdown("<div class='nexus-card' style='border-top: 4px solid #4F46E5; background-color: #F8FAFC;'><h3>Pro Tier 🚀</h3><h2 style='color:#4F46E5;'>₹549/mo</h2><hr><ul><li style='margin-bottom:8px'><b>Unlimited</b> Volume</li><li>Auto-Invoicing</li></ul></div>", unsafe_allow_html=True)
         if st.button("💳 Proceed to Checkout", type="primary", use_container_width=True):
             st.session_state.checkout_active = True
             st.rerun()
@@ -821,7 +826,7 @@ def render_admin_panel():
                 st.info("Queue is empty. No pending payments.")
             for u in pending:
                 requested_months = u.get('plan_months', 1)
-                expected_total = (549.00 * requested_months) * 1.18
+                expected_total = 549.00 * requested_months
                 display_uname = u['email'].replace("@nexus.app", "")
                 
                 st.markdown(f"<div style='padding: 15px; border: 1px solid #E2E8F0; border-radius: 8px; margin-bottom: 10px;'><b>User:</b> {display_uname}<br><span style='color:#64748B; font-size:13px;'>{requested_months} Months | Paid: ₹{expected_total:.2f}</span></div>", unsafe_allow_html=True)
